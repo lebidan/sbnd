@@ -1,0 +1,129 @@
+# -----------------------------------------------------------------------------
+# Base config for model training
+# -----------------------------------------------------------------------------
+defaults:
+  - _self_
+  - exp: dev-test-gru
+  - override hydra/job_logging: colorlog
+  - override hydra/hydra_logging: colorlog
+  
+# -----------------------------------------------------------------------------
+# Hydra environnemnt settings
+# -----------------------------------------------------------------------------
+
+# task name, determines output directory path
+task_name: train
+
+# path to root directory
+root_dir: .
+
+# path to codes directory
+codes_dir: ${root_dir}/data/codes
+
+# path to datasets directory
+data_dir: ${root_dir}/data/datasets
+
+# path to logging directory (root of hydra generation pattern)
+log_dir: ${root_dir}/log
+
+hydra:
+  # specify hydra output directory generation pattern (to distinguish runs)
+  run:
+    dir: ${log_dir}/${task_name}/runs/${now:%Y-%m-%d}_${now:%H-%M-%S}
+  sweep:
+    dir: ${log_dir}/${task_name}/multiruns/${now:%Y-%m-%d}_${now:%H-%M-%S}
+    subdir: ${hydra:job.num}
+  job_logging:
+    handlers:
+      file:
+        # Incorporates fix from https://github.com/facebookresearch/hydra/pull/2242
+        filename: ${hydra:runtime.output_dir}/${task_name}.log
+
+# path to output directory, created dynamically by hydra
+# use it to store all files generated during the run, like ckpts and metrics
+output_dir: ${hydra:runtime.output_dir}
+
+# -----------------------------------------------------------------------------
+# Default trainer settings (most will be overridden)
+# -----------------------------------------------------------------------------
+
+# a project name for the experiments (required for loggers like wandb)
+project: sbnd
+
+# prefix for model checkpoint name (defaults: exp file name)
+model_ckpt_name: ${hydra:runtime.choices.exp}
+
+# global seed
+seed: 1234
+
+# default number of nodes, GPUs per node, and CPU cores (or workers) per GPU
+nodes:  1
+gpus:   1
+cpus:   8
+
+# default maximum of epochs (to be overridden by experiments)
+max_epochs: 1
+
+# default learning rate (to be overridden by experiments)
+lr: 0.001
+
+# set wand logger in offline mode 
+offline: false
+
+# -----------------------------------------------------------------------------
+# Lightning-specific settings
+# -----------------------------------------------------------------------------
+
+# Datamodule
+data:
+  extra_args:
+    num_workers: ${cpus}
+    pin_memory: true
+
+# CSV logger
+csv_logger:
+  _target_: pytorch_lightning.loggers.CSVLogger
+  save_dir: ${output_dir}
+  name: csv/
+
+# Wandb logger
+wandb_logger:
+  _target_: pytorch_lightning.loggers.WandbLogger
+  save_dir: ${output_dir}
+  project: ${project}
+  log_model: false
+  offline: ${offline}
+
+# Model summary (trainer callback)
+summary_cb:
+  _target_: lightning.pytorch.callbacks.ModelSummary
+  max_depth: -1
+
+# Model checkpointing (trainer callback)
+checkpoints_cb:  
+  _target_: lightning.pytorch.callbacks.ModelCheckpoint
+  dirpath: ${output_dir}/checkpoints
+  save_last: true
+  save_top_k: 1
+  monitor: val/acc
+  mode: max
+  filename: ${model_ckpt_name}-val-acc-{val/acc:.4f}
+  auto_insert_metric_name: false
+
+# List of trainer callbacks to instantiate 
+trainer_cb: 
+  - ${summary_cb} 
+  - ${checkpoints_cb}
+
+# List of training logger(s) to instantiate
+loggers: 
+  - ${csv_logger}
+  - ${wandb_logger}
+
+# Trainer
+trainer:
+  default_root_dir: ${output_dir}
+  max_epochs: ${max_epochs}
+  deterministic: true
+  enable_model_summary: false  
+ 
