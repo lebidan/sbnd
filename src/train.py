@@ -54,8 +54,8 @@ def main(cfg: DictConfig) -> None:
 
     # enable TF32 fast ops if available
     if torch.cuda.is_available():
-        torch.set_float32_matmul_precision("high")
-
+        torch.set_float32_matmul_precision("high")    
+    
     # disable torch.dynamo warnings, as dynamo can be *very* verbose
     # see https://github.com/pytorch/pytorch/issues/94788
     torch._logging.set_logs(dynamo=logging.ERROR)
@@ -68,27 +68,34 @@ def main(cfg: DictConfig) -> None:
     # analyze the training environment
     if os.environ.get("SLURM_JOB_ID"):
         log.info("Training on SLURM cluster")
-        # check the consistency of our config with to the ressources made available by SLURM
-        slurm_nodes = int(os.environ.get("SLURM_NNODES", 0))
-        if cfg.nodes < slurm_nodes:
-            log.warning(
-                f"Using less compute nodes ({cfg.nodes}) than available (SLURM_NNODES={slurm_nodes})"
-            )
-        slurm_gpus = int(os.environ.get("SLURM_GPUS_ON_NODE", 0))
-        if cfg.gpus < slurm_gpus:
-            log.warning(
-                f"Using less GPUs/node ({cfg.gpus}) than available (SLURM_GPUS_ON_NODE={slurm_gpus})"
-            )
-        slurm_tasks = int(os.environ.get("SLURM_NTASKS_PER_NODE", 0))
-        if cfg.gpus != slurm_tasks:
-            log.warning(
-                f"The number of tasks/node (SLURM_NTASKS_PER_NODE={slurm_tasks}) should match the number of GPUs/node used ({cfg.gpus})"
-            )
-        slurm_cpus = int(os.environ.get("SLURM_CPUS_PER_TASK", 0))
-        if cfg.cpus < slurm_cpus:
-            log.warning(
-                f"Using less CPUs/task ({cfg.cpus}) than available (SLURM_CPUS_PER_TASK={slurm_cpus})"
-            )
+        slurm_nodes = (
+            os.environ.get("SLURM_NNODES") or
+            os.environ.get("SLURM_JOB_NUM_NODES") or
+            "?"
+        )
+        slurm_gpus = (
+            os.environ.get("SLURM_GPUS_ON_NODE") or
+            os.environ.get("SLURM_GPUS_PER_NODE") or
+            os.environ.get("SLURM_JOB_GPUS") or
+            "?"
+        )
+        slurm_tasks = (
+            os.environ.get("SLURM_NTASKS_PER_NODE") or
+            os.environ.get("SLURM_TASKS_PER_NODE") or
+            os.environ.get("SLURM_NTASKS") or
+            "?"
+        )
+        slurm_cpus = (
+            os.environ.get("SLURM_CPUS_PER_TASK") or
+            os.environ.get("SLURM_CPUS_ON_NODE") or
+            os.environ.get("SLURM_JOB_CPUS_PER_NODE") or
+            "?"
+        )
+        log.info(
+            f"SLURM environment: {slurm_nodes} node(s), "
+            f"{slurm_gpus} GPU(s)/node, {slurm_tasks} task(s)/node, "
+            f"{slurm_cpus} CPU(s)/task"
+        )
     else:
         log.info("Training on local machine")
 
@@ -138,10 +145,12 @@ def main(cfg: DictConfig) -> None:
     ckpt_to_continue = cfg.get("continue", None)
     ckpt_path = None
     code_path = str(cfg.code.mat_file)
+    fit_kwargs = {}
     if ckpt_to_resume is not None:
         log.info(f"Resuming training from checkpoint: {ckpt_to_resume}")
         lm = hydra.utils.instantiate(cfg.model, decoder=decoder, code_path=code_path)
         ckpt_path = ckpt_to_resume
+        fit_kwargs = {"weights_only": False}
     elif ckpt_to_continue is not None:
         log.info(f"Loading pretrained model from checkpoint: {ckpt_to_continue}")
         lm = load_pretrained_model(
@@ -160,7 +169,7 @@ def main(cfg: DictConfig) -> None:
 
     # train/eval the decoder model on the training/validation datasets
     # log the corresponding metrics and save the best model
-    trainer.fit(model=lm, datamodule=dm, ckpt_path=ckpt_path)
+    trainer.fit(model=lm, datamodule=dm, ckpt_path=ckpt_path, **fit_kwargs)
 
     # report some info about the training process
     log.info(f"LLR scaling factor after fit: {lm.llr_scaling.detach().item():.4f}")

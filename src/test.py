@@ -61,6 +61,7 @@ def update_error_stats(
     stats["CW errors"] += torch.any(bit_err, dim=1).sum().item()
 
 
+
 def test_model(
     code: LinearCode,
     model: SBNDLitModule,
@@ -71,10 +72,10 @@ def test_model(
     num_workers: int = 16,
     show_progress: bool = True,
 ) -> DataFrame:
-    if torch.cuda.is_available():
-        torch.set_float32_matmul_precision("high")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
+    if torch.cuda.is_available():
+        torch.set_float32_matmul_precision("high")    
     model = model.to(device)
     model.eval()
     # Setup output dataframe & file
@@ -143,7 +144,7 @@ def main() -> None:
     )
     parser.add_argument("--batch_size", type=int, help="test batch size", default=4096)
     parser.add_argument(
-        "--num_batch", type=int, help="number of batches per Eb/N0 value", default=1024
+        "--num_batches", type=int, help="number of batches per Eb/N0 value", default=1024
     )
     parser.add_argument(
         "--num_workers", type=int, help="number of workers for dataloading", default=8
@@ -186,7 +187,7 @@ def main() -> None:
         f"Eb/N0 range to simulate: from {ebno_dB_range[0]} to {ebno_dB_range[-1]} by step of {args.snr_step} dB ({len(ebno_dB_range)} values)"
     )
     log.info(
-        f"{args.num_batch * args.batch_size:,} samples per Eb/N0 value ({args.num_batch} batches of {args.batch_size} samples per batch)"
+        f"{args.num_batches * args.batch_size:,} samples per Eb/N0 value ({args.num_batches} batches of {args.batch_size} samples per batch)"
     )
     log.info(f"Dataloading will use {args.num_workers} cpus")
 
@@ -203,7 +204,7 @@ def main() -> None:
         output_file,
         num_workers=args.num_workers,
         test_bs=args.batch_size,
-        n_test_batches=args.num_batch,
+        n_test_batches=args.num_batches,
     )
     log.info("")
 

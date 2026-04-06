@@ -1,0 +1,78 @@
+# @package _global_
+
+# -----------------------------------------------------------------------------
+# Code & neural decoder
+# -----------------------------------------------------------------------------
+
+code:
+  _target_: sbnd.codes.LinearCode
+  mat_file: ${codes_dir}/bch.63.45.mat
+
+decoder:
+  _target_: sbnd.ecct.ECC_Transformer
+  n_layers: 6
+  embed_dim: 128
+  n_heads: 8
+  res_dropout: 0.01
+  attn_dropout: 0.1
+  ffn_dropout: 0
+  use_fast_attn: true
+  compile: true
+
+# -----------------------------------------------------------------------------
+# Datasets for training, validation and testing
+# -----------------------------------------------------------------------------
+# 512K = 524288, 1M = 1048576, 2M = 2097152, 4M = 4194304, 16M = 16777216, 1B = 1073741824
+
+data:  
+  _target_: sbnd.data.SBNDDataModule
+  ebno_dB_train: 2.0
+  on_demand: false
+  train_file: ${data_dir}/bch-63-45/train-ml-4M-2dB.mat
+  train_bs: 4096
+  val_file: ${data_dir}/bch-63-45/val-ml-512K-2dB.mat
+  n_val_samples: 524288
+  val_bs: 4096
+  ebno_dB_test: [2.0, 3.0, 4.0]
+  n_test_samples: 2097152
+  test_bs: 4096
+  transform:
+    _partial_: true
+    _target_: sbnd.data.BCHPerms
+
+# -----------------------------------------------------------------------------
+# Model-specific training setup
+# -----------------------------------------------------------------------------
+
+max_epochs: 512
+lr: 0.001
+
+optimizer:
+  _partial_: true
+  _target_: torch.optim.AdamW
+  lr: ${lr}
+  weight_decay: 0.01
+  eps: 1e-6
+
+lr_scheduler: 
+  _partial_: true
+  _target_: sbnd.lr_sched.WarmupStableDecayLR
+  total: ${max_epochs}
+  warmup: 10
+  decay: 32
+
+trainer:
+  gradient_clip_val: 1.0
+  precision: bf16-mixed
+
+resume: "log/train/runs/2026-04-06_16-32-22/checkpoints/last.ckpt"
+
+# -----------------------------------------------------------------------------
+# Lightning module
+# -----------------------------------------------------------------------------
+
+model:
+  _target_: sbnd.model.SBNDLitModule
+  decoder:  ${decoder}
+  optimizer: ${optimizer}
+  lr_scheduler: ${lr_scheduler} 
