@@ -165,5 +165,5 @@ cython_debug/
 
 # Datasets, logs and checkpoints 
 data/datasets
-log/train
-log/test
+log/train/runs
+
