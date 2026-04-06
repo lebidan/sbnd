@@ -150,7 +150,7 @@ class ECC_Transformer(nn.Module):
         compile: bool = False,
         output: str = "codeword",
     ) -> None:
-        super(ECC_Transformer, self).__init__()
+        super().__init__()
 
         N_dec, d_model, h = n_layers, embed_dim, n_heads
         output_sz = code.k if output == "message" else code.n

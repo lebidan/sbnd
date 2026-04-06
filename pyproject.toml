@@ -29,6 +29,9 @@ sbnd-test  = "sbnd.test:main"
 package-dir = {"sbnd" = "src"}
 packages    = ["sbnd"]
 
+[dependency-groups]
+dev = ["black>=26", "mypy>=1.20"]
+
 [tool.black]
 line-length = 88
 

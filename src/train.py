@@ -54,8 +54,8 @@ def main(cfg: DictConfig) -> None:
 
     # enable TF32 fast ops if available
     if torch.cuda.is_available():
-        torch.set_float32_matmul_precision("high")    
-    
+        torch.set_float32_matmul_precision("high")
+
     # disable torch.dynamo warnings, as dynamo can be *very* verbose
     # see https://github.com/pytorch/pytorch/issues/94788
     torch._logging.set_logs(dynamo=logging.ERROR)
@@ -69,27 +69,27 @@ def main(cfg: DictConfig) -> None:
     if os.environ.get("SLURM_JOB_ID"):
         log.info("Training on SLURM cluster")
         slurm_nodes = (
-            os.environ.get("SLURM_NNODES") or
-            os.environ.get("SLURM_JOB_NUM_NODES") or
-            "?"
+            os.environ.get("SLURM_NNODES")
+            or os.environ.get("SLURM_JOB_NUM_NODES")
+            or "?"
         )
         slurm_gpus = (
-            os.environ.get("SLURM_GPUS_ON_NODE") or
-            os.environ.get("SLURM_GPUS_PER_NODE") or
-            os.environ.get("SLURM_JOB_GPUS") or
-            "?"
+            os.environ.get("SLURM_GPUS_ON_NODE")
+            or os.environ.get("SLURM_GPUS_PER_NODE")
+            or os.environ.get("SLURM_JOB_GPUS")
+            or "?"
         )
         slurm_tasks = (
-            os.environ.get("SLURM_NTASKS_PER_NODE") or
-            os.environ.get("SLURM_TASKS_PER_NODE") or
-            os.environ.get("SLURM_NTASKS") or
-            "?"
+            os.environ.get("SLURM_NTASKS_PER_NODE")
+            or os.environ.get("SLURM_TASKS_PER_NODE")
+            or os.environ.get("SLURM_NTASKS")
+            or "?"
         )
         slurm_cpus = (
-            os.environ.get("SLURM_CPUS_PER_TASK") or
-            os.environ.get("SLURM_CPUS_ON_NODE") or
-            os.environ.get("SLURM_JOB_CPUS_PER_NODE") or
-            "?"
+            os.environ.get("SLURM_CPUS_PER_TASK")
+            or os.environ.get("SLURM_CPUS_ON_NODE")
+            or os.environ.get("SLURM_JOB_CPUS_PER_NODE")
+            or "?"
         )
         log.info(
             f"SLURM environment: {slurm_nodes} node(s), "
