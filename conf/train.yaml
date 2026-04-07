@@ -3,7 +3,7 @@
 # -----------------------------------------------------------------------------
 defaults:
   - _self_
-  - exp: dev-test-gru
+  - exp: dev-test-mocked 
   - override hydra/job_logging: colorlog
   - override hydra/hydra_logging: colorlog
   
@@ -50,9 +50,6 @@ output_dir: ${hydra:runtime.output_dir}
 # a project name for the experiments (required for loggers like wandb)
 project: sbnd
 
-# prefix for model checkpoint name (defaults: exp file name)
-model_ckpt_name: ${hydra:runtime.choices.exp}
-
 # global seed
 seed: 1234
 
@@ -66,6 +63,9 @@ max_epochs: 1
 
 # default learning rate (to be overridden by experiments)
 lr: 0.001
+
+# prefix for model checkpoint name (defaults: exp file name)
+model_ckpt_name: ${hydra:runtime.choices.exp}-${max_epochs}epochs
 
 # set wand logger in offline mode 
 offline: false
