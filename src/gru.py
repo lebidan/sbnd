@@ -76,7 +76,7 @@ class StackedGRUDecoder(nn.Module):
 
         # input embedding
         x = torch.cat((ym, s), dim=1)
-        if self.expand_input
+        if self.expand_input:
             # expand input to shape (batch_size, n_steps, in_sz)
             x = x.unsqueeze(1).expand(-1, self.n_steps, -1)
         else:

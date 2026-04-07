@@ -9,12 +9,7 @@ code:
   mat_file: ${codes_dir}/bch.31.21.mat
 
 decoder:
-  _target_: sbnd.gru.StackedGRUDecoder
-  hidden_sz: 256
-  n_layers: 2
-  n_steps: 10
-  bias: false
-  dropout: 0.20
+  _target_: sbnd.mocked.MockedDecoder
 
 # -----------------------------------------------------------------------------
 # Datasets for training, validation and testing
