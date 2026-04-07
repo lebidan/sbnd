@@ -16,6 +16,7 @@ class StackedGRUDecoder(nn.Module):
         n_steps: int = 1,
         bias: bool = False,
         dropout: float = 0.0,
+        expand_input: bool = False,
         output: str = "codeword",
     ) -> None:
         super().__init__()
@@ -23,13 +24,22 @@ class StackedGRUDecoder(nn.Module):
         input_sz = code.n + code.m
         output_sz = code.k if output == "message" else code.n
         self.hidden_sz, self.output_sz, self.n_steps = hidden_sz, output_sz, n_steps
+        self.expand_input = expand_input
 
         log.info(
             f"Building a {n_layers}-layer GRU decoder with hidden dimension {hidden_sz}"
         )
         log.info(
-            f"The GRU decoder will process an input of length {self.n_steps} timesteps"
+            f"The GRU decoder will process an input of length {self.n_steps} time steps"
         )
+        if self.expand_input:
+            log.info(
+                "The decoder input is repeated at each time step"
+            )
+        else:
+            log.info(
+                "The decoder input is zeros at each time step but the first"
+            )
 
         # create layers
         self.gru = nn.GRU(
@@ -66,16 +76,19 @@ class StackedGRUDecoder(nn.Module):
 
         # input embedding
         x = torch.cat((ym, s), dim=1)
-        x = torch.cat(
-            (
-                x[:, None],
-                torch.zeros(x.size(0), 1, x.size(1), device=x.device).expand(
-                    -1, self.n_steps - 1, -1
+        if self.expand_input
+            # expand input to shape (batch_size, n_steps, in_sz)
+            x = x.unsqueeze(1).expand(-1, self.n_steps, -1)
+        else:
+            x = torch.cat(
+                (
+                    x[:, None],
+                    torch.zeros(x.size(0), 1, x.size(1), device=x.device).expand(
+                        -1, self.n_steps - 1, -1
+                    ),
                 ),
-            ),
-            dim=1,
-        )  # input = [x, 0, 0, ...] along dim=1
-        # x = torch.unsqueeze(x, 1).expand(-1, self.n_steps, -1)  # expand input to shape (batch_size, n_steps, in_sz)
+                dim=1,
+            )  # input = [x, 0, 0, ...] along dim=1
 
         # run gru on all time steps at once (faster than one step at a time)
         out = self.gru(x)[0]  # (B, L, H)

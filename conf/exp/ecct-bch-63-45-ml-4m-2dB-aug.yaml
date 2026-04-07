@@ -31,7 +31,6 @@ data:
   train_file: ${data_dir}/bch-63-45/train-ml-4M-2dB.mat
   train_bs: 4096
   val_file: ${data_dir}/bch-63-45/val-ml-512K-2dB.mat
-  n_val_samples: 524288
   val_bs: 4096
   ebno_dB_test: [2.0, 3.0, 4.0]
   n_test_samples: 2097152
@@ -64,8 +63,6 @@ lr_scheduler:
 trainer:
   gradient_clip_val: 1.0
   precision: bf16-mixed
-
-resume: "log/train/runs/2026-04-06_16-32-22/checkpoints/last.ckpt"
 
 # -----------------------------------------------------------------------------
 # Lightning module
