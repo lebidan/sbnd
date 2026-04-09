@@ -6,12 +6,12 @@
 
 code:
   _target_: sbnd.codes.LinearCode
-  mat_file: ${codes_dir}/bch.63.45.mat
+  mat_file: ${codes_dir}/bch.31.21.mat
 
 decoder:
   _target_: sbnd.ecct.ECC_Transformer
   n_layers: 6
-  embed_dim: 128
+  embed_dim: 96
   n_heads: 8
   attn_dropout: 0.1
   res_dropout: 0.01
@@ -25,11 +25,11 @@ decoder:
 
 data:  
   _target_: sbnd.data.SBNDDataModule
-  ebno_dB_train: 2.0
-  on_demand: true
-  n_train_samples: 1048576  # number of training samples per epoch
+  ebno_dB_train: 3.0
+  on_demand: false
+  train_file: ${data_dir}/bch-31-21/train-ml-4M-3dB.mat
   train_bs: 4096
-  n_val_samples: 524288
+  val_file: ${data_dir}/bch-31-21/val-ml-512K-3dB.mat
   val_bs: 4096
   ebno_dB_test: [2.0, 3.0, 4.0]
   n_test_samples: 2097152
@@ -39,7 +39,7 @@ data:
 # Model-specific training setup
 # -----------------------------------------------------------------------------
 
-max_epochs: 512
+max_epochs: 128
 lr: 0.001
 
 optimizer:

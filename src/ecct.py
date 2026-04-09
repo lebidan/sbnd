@@ -143,7 +143,7 @@ class ECC_Transformer(nn.Module):
         embed_dim: int = 32,
         n_heads: int = 8,
         res_dropout: float = 0.1,
-        attn_dropout: float = 0,
+        attn_dropout: float = 0.1,
         ffn_dropout: float = 0,
         up_proj: int = 4,
         use_fast_attn: bool = True,

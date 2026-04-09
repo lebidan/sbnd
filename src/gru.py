@@ -33,13 +33,9 @@ class StackedGRUDecoder(nn.Module):
             f"The GRU decoder will process an input of length {self.n_steps} time steps"
         )
         if self.expand_input:
-            log.info(
-                "The decoder input is repeated at each time step"
-            )
+            log.info("The decoder input is repeated at each time step")
         else:
-            log.info(
-                "The decoder input is zeros at each time step but the first"
-            )
+            log.info("The decoder input is zeros at each time step but the first")
 
         # create layers
         self.gru = nn.GRU(

@@ -14,21 +14,18 @@ class MockedDecoder(nn.Module):
         output: str = "codeword",
     ) -> None:
         super().__init__()
-        
+
         # for model summary (keep this line)
         self.example_input_array = torch.zeros(1, code.n), torch.zeros(1, code.m)
 
         # model input/output sizes (you may want to keep these)
         input_sz = code.n + code.m
         output_sz = code.k if output == "message" else code.n
-       
-        log.info(
-            f"Using the mocked decoder"
-        )
+
+        log.info(f"Using the mocked decoder")
 
         # replace with your code
         self.fc = nn.Linear(input_sz, output_sz)
-
 
     def forward(self, ym: Tensor, s: Tensor) -> Tensor:
         """Forward pass template"""

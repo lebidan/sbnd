@@ -64,7 +64,7 @@ max_epochs: 1
 # default learning rate (to be overridden by experiments)
 lr: 0.001
 
-# prefix for model checkpoint name (defaults: exp file name)
+# prefix for model checkpoint name (default: {exp file name}-{max_epochs}epochs)
 model_ckpt_name: ${hydra:runtime.choices.exp}-${max_epochs}epochs
 
 # set wand logger in offline mode 
@@ -107,13 +107,18 @@ checkpoints_cb:
   save_top_k: 1
   monitor: val/acc
   mode: max
-  filename: ${model_ckpt_name}-val-acc-{val/acc:.4f}
+  filename: ${model_ckpt_name}
   auto_insert_metric_name: false
+
+# A custom callback used to append wand experiment name to best model ckpt name
+wandb_ckpt_cb:
+  _target_: sbnd.train.WandbModifyCheckpointName
 
 # List of trainer callbacks to instantiate 
 trainer_cb: 
   - ${summary_cb} 
   - ${checkpoints_cb}
+  - ${wandb_ckpt_cb}
 
 # List of training logger(s) to instantiate
 loggers: 

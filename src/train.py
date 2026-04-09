@@ -3,12 +3,32 @@ import torch, lightning as lit
 
 from typing import Any, Iterable, cast
 from omegaconf import OmegaConf, DictConfig
-from lightning.pytorch.loggers import Logger
+from lightning.pytorch.loggers import Logger, WandbLogger
+from lightning.pytorch.callbacks import ModelCheckpoint, Callback
 
 from .utils import get_rank_zero_logger
 from .model import SBNDLitModule
 
 log = get_rank_zero_logger(__name__)
+
+
+# A custom callback used to append wand experiment name to best model ckpt name
+class WandbModifyCheckpointName(Callback):
+    def on_train_start(
+        self, trainer: lit.Trainer, pl_module: lit.LightningModule
+    ) -> None:
+        # retrieve the current W&B run name
+        run_name = None
+        for logger in trainer.loggers:
+            if isinstance(logger, WandbLogger):
+                run_name = logger.experiment.name  # triggers W&B init if not yet done
+                break
+        if run_name is None:
+            return
+        # append it to the checkpoint filename
+        for cb in trainer.callbacks:
+            if isinstance(cb, ModelCheckpoint):
+                cb.filename = f"{cb.filename}-{run_name}"
 
 
 def log_config(
