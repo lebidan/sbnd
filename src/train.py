@@ -4,7 +4,7 @@ import torch, lightning as lit
 from typing import Any, Iterable, cast
 from omegaconf import OmegaConf, DictConfig
 from lightning.pytorch.loggers import Logger, WandbLogger
-from lightning.pytorch.callbacks import ModelCheckpoint, Callback
+from lightning.pytorch.callbacks import Callback, ModelCheckpoint
 
 from .utils import get_rank_zero_logger
 from .model import SBNDLitModule
@@ -26,7 +26,7 @@ class WandbModifyCheckpointName(Callback):
         if run_name is None:
             return
         # append it to the checkpoint filename
-        for cb in trainer.callbacks:
+        for cb in trainer.checkpoint_callbacks:
             if isinstance(cb, ModelCheckpoint):
                 cb.filename = f"{cb.filename}-{run_name}"
 
