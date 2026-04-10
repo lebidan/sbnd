@@ -12,9 +12,10 @@ decoder:
   _target_: sbnd.gru.StackedGRUDecoder
   hidden_sz: 384
   n_layers: 2
-  n_steps: 18
+  n_steps: 15
   bias: false
-  dropout: 0.1
+  dropout: 0.15
+  zero_padding: true
 
 # -----------------------------------------------------------------------------
 # Datasets for training, validation and testing
@@ -34,7 +35,7 @@ data:
   test_bs: 4096
   transform:
     _partial_: true
-    _target_: sbnd.data.BCHPerms
+    _target_: sbnd.transforms.BCHPerms
 
 # -----------------------------------------------------------------------------
 # Model-specific training setup

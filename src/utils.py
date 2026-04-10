@@ -1,6 +1,6 @@
 import logging, sys
 import colorlog  # type: ignore[import-untyped]
-from pytorch_lightning.utilities import rank_zero_only
+from lightning.pytorch.utilities import rank_zero_only
 
 
 def get_rank_zero_logger(name: str = __name__) -> logging.Logger:

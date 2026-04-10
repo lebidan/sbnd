@@ -36,7 +36,7 @@ data:
   test_bs: 4096
   transform:
     _partial_: true
-    _target_: sbnd.data.BCHPerms
+    _target_: sbnd.transforms.BCHPerms
 
 # -----------------------------------------------------------------------------
 # Model-specific training setup

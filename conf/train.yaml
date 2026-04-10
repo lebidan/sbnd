@@ -82,13 +82,13 @@ data:
 
 # CSV logger
 csv_logger:
-  _target_: pytorch_lightning.loggers.CSVLogger
+  _target_: lightning.pytorch.loggers.CSVLogger
   save_dir: ${output_dir}
   name: csv/
 
 # Wandb logger
 wandb_logger:
-  _target_: pytorch_lightning.loggers.WandbLogger
+  _target_: lightning.pytorch.loggers.WandbLogger
   save_dir: ${output_dir}
   project: ${project}
   log_model: false

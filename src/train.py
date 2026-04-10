@@ -15,7 +15,7 @@ log = get_rank_zero_logger(__name__)
 # A custom callback used to append wand experiment name to best model ckpt name
 class WandbModifyCheckpointName(Callback):
     def on_train_start(
-        self, trainer: lit.Trainer, pl_module: lit.LightningModule
+        self, trainer: lit.Trainer, lm: lit.LightningModule
     ) -> None:
         # retrieve the current W&B run name
         run_name = None
@@ -29,6 +29,7 @@ class WandbModifyCheckpointName(Callback):
         for cb in trainer.checkpoint_callbacks:
             if isinstance(cb, ModelCheckpoint):
                 cb.filename = f"{cb.filename}-{run_name}"
+                log.info(f"Modified checkpoint filename to include W&B run name: {cb.filename}")
 
 
 def log_config(
