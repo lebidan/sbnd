@@ -1,3 +1,5 @@
+# Train a SBND decoder model using PyTorch Lightning, with support for multi-GPU training, logging and checkpointing.
+
 import logging, hydra, os
 import torch, lightning as lit
 

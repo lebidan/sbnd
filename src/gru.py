@@ -1,3 +1,5 @@
+# Stacked GRU decoder model as proposed in https://arxiv.org/abs/1802.04741
+
 import torch, torch.nn as nn, torch.nn.functional as F
 from torch import Tensor
 from .codes import LinearCode
@@ -14,7 +16,7 @@ class StackedGRUDecoder(nn.Module):
         hidden_sz: int,
         n_layers: int = 1,
         n_steps: int = 1,
-        bias: bool = False,
+        bias: bool = True,
         dropout: float = 0.0,
         zero_padding: bool = False,
         output: str = "codeword",

@@ -1,3 +1,5 @@
+# Basic linear block code stuff
+
 import torch
 from scipy.io import loadmat  # type: ignore[import-untyped]
 from .utils import get_rank_zero_logger

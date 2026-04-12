@@ -1,5 +1,7 @@
 # @package _global_
 
+offline: true # set wandb logger in offline mode for dev tests
+
 # -----------------------------------------------------------------------------
 # Code & neural decoder
 # -----------------------------------------------------------------------------
@@ -46,7 +48,8 @@ optimizer:
   _partial_: true
   _target_: torch.optim.AdamW
   lr: ${lr}
-  weight_decay: 0.0
+  weight_decay: 0.01
+  eps: 1e-6
 
 lr_scheduler: 
   _partial_: true
@@ -56,8 +59,8 @@ lr_scheduler:
   decay: 0
   
 trainer:
-  gradient_clip_val: 1.0
   precision: bf16-mixed
+  gradient_clip_val: 1.0
   
 # -----------------------------------------------------------------------------
 # Lightning module

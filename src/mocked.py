@@ -1,3 +1,5 @@
+# A minimal SBND decoder model that you can use as a template for your own implementation.
+
 import torch, torch.nn as nn
 from torch import Tensor
 from .codes import LinearCode
@@ -24,7 +26,8 @@ class MockedDecoder(nn.Module):
 
         log.info(f"Using the mocked decoder")
 
-        # replace with your code
+        # replace with your code 
+        # here we just use a single linear layer for demonstration purposes
         self.fc = nn.Linear(input_sz, output_sz)
 
     def forward(self, ym: Tensor, s: Tensor) -> Tensor:

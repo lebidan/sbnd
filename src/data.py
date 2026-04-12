@@ -1,3 +1,5 @@
+# Lightning data module for SBND models training and testing
+
 import math, torch, numpy as np
 import h5py  # type: ignore[import-untyped]
 from typing import Iterable, Callable, cast
@@ -5,13 +7,13 @@ from omegaconf import OmegaConf, ListConfig
 from torch import Tensor
 from torch.utils.data import DataLoader, Dataset, random_split
 from lightning import LightningDataModule
-from .codes import LinearCode
 from scipy.io import loadmat  # type: ignore[import-untyped]
+from .codes import LinearCode
 from .utils import get_rank_zero_logger
 
 log = get_rank_zero_logger(__name__)
 
-    
+
 def load_matlab_data(mat_file: str) -> tuple[Tensor, Tensor]:
     """Load received words y and target error patterns e from a MATLAB .mat file."""
     try:

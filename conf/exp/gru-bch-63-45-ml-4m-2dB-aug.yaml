@@ -12,11 +12,9 @@ decoder:
   _target_: sbnd.gru.StackedGRUDecoder
   hidden_sz: 384
   n_layers: 2
-  n_steps: 15
-  bias: false
-  dropout: 0.15
-  zero_padding: true
-
+  n_steps: 18
+  dropout: 0.20
+  
 # -----------------------------------------------------------------------------
 # Datasets for training, validation and testing
 # -----------------------------------------------------------------------------
@@ -48,8 +46,7 @@ optimizer:
   _partial_: true
   _target_: torch.optim.AdamW
   lr: ${lr}
-  weight_decay: 0.01
-  eps: 1e-6
+  weight_decay: 0.02
 
 lr_scheduler: 
   _partial_: true
@@ -57,10 +54,6 @@ lr_scheduler:
   total: ${max_epochs}
   warmup: 10
   decay: 32
-
-trainer:
-  gradient_clip_val: 1.0
-  precision: bf16-mixed
 
 # -----------------------------------------------------------------------------
 # Lightning module

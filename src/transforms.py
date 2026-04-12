@@ -1,3 +1,5 @@
+# Data augmentation transforms for SBND training, based on the code automorphisms 
+
 import torch
 from torch import Tensor
 from .codes import LinearCode

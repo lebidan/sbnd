@@ -1,3 +1,5 @@
+# Misc utility functions for the SBND project
+
 import logging, sys
 import colorlog  # type: ignore[import-untyped]
 from lightning.pytorch.utilities import rank_zero_only

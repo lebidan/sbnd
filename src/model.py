@@ -1,3 +1,8 @@
+# The LightningModule wrapper around the SBND decoder model, handling training, 
+# validation and testing steps, as well as optimizers and learning rate 
+# schedulers configuration. It also includes some monitoring tools to track 
+# training dynamics and detect potential issues.
+
 import torch, torch.nn as nn, torch.nn.functional as F
 from typing import Any
 from torch import Tensor

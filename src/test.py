@@ -1,8 +1,8 @@
-import torch, pathlib, argparse
-import pandas as pd  # type: ignore[import-untyped]
+# Evaluate the test performance of a trained SBND model through Monte Carlo simulations.
+
+import torch, pathlib, argparse, csv
 
 from torch import Tensor
-from pandas import DataFrame  # type: ignore[import-untyped]
 from torch.utils.data import DataLoader
 from tqdm import tqdm  # type: ignore[import-untyped]
 from tabulate import tabulate  # type: ignore[import-untyped]
@@ -25,6 +25,21 @@ def count_parameters(model: SBNDLitModule) -> int:
 
 def bipolar_to_bit(x: Tensor) -> Tensor:
     return (x < 0).to(torch.int8)
+
+# column labels for the output csv file
+COLUMNS = ["Eb/N0", "WER", "BER", "CW errors", "Bit errors", "Total CW"]
+
+
+def load_csv(path: str) -> list[dict[str, float]]:
+    with open(path, newline="") as f:
+        return [{k: float(v) for k, v in row.items()} for row in csv.DictReader(f)]
+
+
+def write_csv(rows: list[dict[str, float]], path: str) -> None:
+    with open(path, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=COLUMNS)
+        writer.writeheader()
+        writer.writerows(rows)
 
 
 def update_error_stats(
@@ -70,28 +85,31 @@ def test_model(
     n_test_batches: int = 512,
     num_workers: int = 16,
     show_progress: bool = True,
-) -> DataFrame:
+) -> list[dict[str, float]]:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
     if torch.cuda.is_available():
         torch.set_float32_matmul_precision("high")
     model = model.to(device)
     model.eval()
-    # Setup output dataframe & file
-    df = pd.DataFrame(
-        columns=["Eb/N0", "WER", "BER", "CW errors", "Bit errors", "Total CW"]
-    )
+    # Load existing rows if the output file already exists, otherwise start fresh
+    rows: list[dict[str, float]] = []
+    if pathlib.Path(output_file).exists():
+        rows = load_csv(output_file)
+        log.info(
+            f"Appending to existing file: {output_file} ({len(rows)} rows already present)"
+        )
     # Setup and run MC simulation
     i_set = torch.arange(0, code.k)
     for ebno_dB in ebno_dB_range:
         print(f"Simulating Eb/N0 = {ebno_dB} dB")
-        error_stats = {
+        error_stats: dict[str, float] = {
             "Eb/N0": ebno_dB.item(),
             "WER": 0.0,
             "BER": 0.0,
-            "CW errors": 0,
-            "Bit errors": 0,
-            "Total CW": 0,
+            "CW errors": 0.0,
+            "Bit errors": 0.0,
+            "Total CW": 0.0,
         }
         ds = OnDemandDataset(
             code, ebno_dB=ebno_dB, n_batches=n_test_batches, bs=test_bs, train=False
@@ -103,25 +121,31 @@ def test_model(
                 logits = model(ym.to(device), syndromes.to(device))
                 preds = bipolar_to_bit(logits)
                 update_error_stats(preds.cpu(), targets, syndromes, i_set, error_stats)
-        # save error stats in dataframe & write them also to csv file
+        # collect error stats in a list of dicts
         error_stats["WER"] = error_stats["CW errors"] * 1.0 / error_stats["Total CW"]
-        error_stats["BER"] = (
-            error_stats["Bit errors"] * 1.0 / (error_stats["Total CW"] * len(i_set))
+        error_stats["BER"] = error_stats["Bit errors"] / (
+            error_stats["Total CW"] * len(i_set)
         )
-        df.loc[len(df)] = error_stats
+        # append new SNR point, then deduplicate by Eb/N0 keeping the latest value
+        rows.append(error_stats)
+        deduped: dict[float, dict[str, float]] = {}
+        for row in rows:
+            deduped[row["Eb/N0"]] = row
+        rows = list(deduped.values())
+        # print error stats and save to csv after each SNR point
         print(error_stats)
-        df.to_csv(output_file, index=False)
-    return df
+        write_csv(rows, output_file)
+    return rows
 
 
 def main() -> None:
 
-    setup_logging()
+    setup_logging() # mimic hydra's nice colorful logging style in the terminal
 
+    # Parse command-line arguments
     parser = argparse.ArgumentParser(
         prog="test", description="Evaluate the FER & BER performance of a trained model"
     )
-
     parser.add_argument("model", type=str, help="model checkpoint")
     parser.add_argument(
         "--code",
@@ -151,18 +175,16 @@ def main() -> None:
     parser.add_argument(
         "--num_workers", type=int, help="number of workers for dataloading", default=8
     )
-
     args = parser.parse_args()
 
     # Load model first (code path is stored in its hparams)
-
     model_file = args.model
     if not model_file.endswith(".ckpt"):
         model_file += ".ckpt"
     log.info(f"Loading model from file: {model_file}")
     model = load_lit_model(model_file)
     log.info(f"Model {model} has been successfully loaded")
-    log.info(f"This model has {count_parameters(model):,} trainable parameters\n")
+    log.info(f"This model has {count_parameters(model):,} trainable parameters")
 
     # Resolve code file: explicit --code flag > path stored in checkpoint
     if args.code is not None:
@@ -178,10 +200,9 @@ def main() -> None:
         code_file += ".mat"
     log.info(f"Loading code from file: {code_file}")
     code = LinearCode(code_file)
-    log.info(f"Code {code} has been successfully loaded\n")
+    log.info(f"Code {code} has been successfully loaded")
 
     # Load simulation parameters
-
     ebno_dB_range = torch.arange(
         args.snr_min, args.snr_max + args.snr_step, args.snr_step
     )
@@ -192,14 +213,13 @@ def main() -> None:
         f"{args.num_batches * args.batch_size:,} samples per Eb/N0 value ({args.num_batches} batches of {args.batch_size} samples per batch)"
     )
     log.info(f"Dataloading will use {args.num_workers} cpus")
-
     pathlib.Path(args.output).mkdir(parents=True, exist_ok=True)
     output_file = args.output + "/" + pathlib.Path(model_file).stem + ".csv"
-    log.info(f"Results will be saved to file: {output_file}\n")
+    log.info(f"Results will be saved to file: {output_file}")
 
-    # Evaluate the model and save results in a dataframe
-
-    df = test_model(
+    # Evaluate the model - The results are returned in a list of dicts,
+    # using one dict of metrics per Eb/N0 point
+    perfs = test_model(
         code,
         model,
         ebno_dB_range,
@@ -208,14 +228,12 @@ def main() -> None:
         test_bs=args.batch_size,
         n_test_batches=args.num_batches,
     )
-    log.info("")
 
     # Pretty print results in the terminal
-    # for some weird reason, integer numbers are still evaluated as float when there are other float columns
-    # in pandas DataFrames, see: https://github.com/astanin/python-tabulate/issues/18
-
+    # for some reason, integer numbers are evaluated as float when there are other 
+    # float columns present, see: https://github.com/astanin/python-tabulate/issues/18
     table = tabulate(
-        df,  # type: ignore[arg-type]
+        perfs,  # type: ignore[arg-type]
         headers="keys",
         floatfmt=[".2f", ".4E", ".4E", ".0f", ".0f", ".0f"],
         showindex=False,

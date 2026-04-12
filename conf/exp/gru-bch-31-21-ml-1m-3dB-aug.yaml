@@ -9,14 +9,11 @@ code:
   mat_file: ${codes_dir}/bch.31.21.mat
 
 decoder:
-  _target_: sbnd.ecct.ECC_Transformer
-  n_layers: 6
-  embed_dim: 96
-  n_heads: 8
-  attn_dropout: 0.4
-  res_dropout: 0.01
-  use_fast_attn: true
-  compile: true
+  _target_: sbnd.gru.StackedGRUDecoder
+  hidden_sz: 256
+  n_layers: 2
+  n_steps: 10
+  dropout: 0.2
 
 # -----------------------------------------------------------------------------
 # Datasets for training, validation and testing
@@ -35,20 +32,22 @@ data:
   ebno_dB_test: [2.0, 3.0, 4.0]
   n_test_samples: 2097152
   test_bs: 4096
+  transform:
+    _partial_: true
+    _target_: sbnd.transforms.BCHPerms
 
 # -----------------------------------------------------------------------------
 # Model-specific training setup
 # -----------------------------------------------------------------------------
 
-max_epochs: 128
-lr: 0.001
+max_epochs: 512
+lr: 0.005
 
 optimizer:
   _partial_: true
   _target_: torch.optim.AdamW
   lr: ${lr}
-  weight_decay: 0.01
-  eps: 1e-6
+  weight_decay: 0.02
 
 lr_scheduler: 
   _partial_: true
@@ -56,10 +55,6 @@ lr_scheduler:
   total: ${max_epochs}
   warmup: 10
   decay: 32
-
-trainer:
-  precision: bf16-mixed
-  gradient_clip_val: 1.0
 
 # -----------------------------------------------------------------------------
 # Lightning module

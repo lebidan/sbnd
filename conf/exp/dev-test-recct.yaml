@@ -1,5 +1,7 @@
 # @package _global_
 
+offline: true # set wandb logger in offline mode for dev tests
+
 # -----------------------------------------------------------------------------
 # Code & neural decoder
 # -----------------------------------------------------------------------------
@@ -9,28 +11,24 @@ code:
   mat_file: ${codes_dir}/bch.31.21.mat
 
 decoder:
-  _target_: sbnd.ecct.ECC_Transformer
-  n_layers: 6
-  embed_dim: 96
-  n_heads: 8
-  attn_dropout: 0.4
-  res_dropout: 0.01
-  use_fast_attn: true
-  compile: true
+  _target_: sbnd.recct.RECCT
+  embed_dim: 64
+  num_heads: 8
+  num_layers: 6
+  res_dropout: 0.1
 
 # -----------------------------------------------------------------------------
 # Datasets for training, validation and testing
 # -----------------------------------------------------------------------------
-# 512K = 524288, 1M = 1048576, 2M = 2097152, 4M = 4194304, 16M = 16777216, 1B = 1073741824
+# 512K = 524288, 1M = 1048576, 2M = 2097152, 4M = 4194304, 16M = 16777216
 
 data:  
   _target_: sbnd.data.SBNDDataModule
   ebno_dB_train: 3.0
-  on_demand: false
-  train_file: ${data_dir}/bch-31-21/train-ml-4M-3dB.mat
-  n_train_samples: 1048576  # train on the first 1M samples only
+  on_demand: true
+  n_train_samples: 1048576
   train_bs: 4096
-  val_file: ${data_dir}/bch-31-21/val-ml-512K-3dB.mat
+  n_val_samples: 524288
   val_bs: 4096
   ebno_dB_test: [2.0, 3.0, 4.0]
   n_test_samples: 2097152
@@ -40,7 +38,7 @@ data:
 # Model-specific training setup
 # -----------------------------------------------------------------------------
 
-max_epochs: 128
+max_epochs: 16
 lr: 0.001
 
 optimizer:
@@ -54,13 +52,13 @@ lr_scheduler:
   _partial_: true
   _target_: sbnd.lr_sched.WarmupStableDecayLR
   total: ${max_epochs}
-  warmup: 10
-  decay: 32
-
+  warmup: 8
+  decay: 0
+  
 trainer:
   precision: bf16-mixed
   gradient_clip_val: 1.0
-
+  
 # -----------------------------------------------------------------------------
 # Lightning module
 # -----------------------------------------------------------------------------

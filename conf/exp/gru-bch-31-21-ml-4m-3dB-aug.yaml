@@ -13,7 +13,6 @@ decoder:
   hidden_sz: 256
   n_layers: 2
   n_steps: 10
-  bias: false
   dropout: 0.2
 
 # -----------------------------------------------------------------------------
@@ -47,8 +46,7 @@ optimizer:
   _partial_: true
   _target_: torch.optim.AdamW
   lr: ${lr}
-  weight_decay: 0.01
-  eps: 1e-6
+  weight_decay: 0.02
 
 lr_scheduler: 
   _partial_: true
@@ -56,10 +54,6 @@ lr_scheduler:
   total: ${max_epochs}
   warmup: 10
   decay: 32
-
-trainer:
-  gradient_clip_val: 1.0
-  precision: bf16-mixed
 
 # -----------------------------------------------------------------------------
 # Lightning module

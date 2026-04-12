@@ -1,3 +1,5 @@
+# Some useful learning rate schedulers for SBND training
+
 import math
 from torch import Tensor
 from torch.optim import Optimizer
@@ -5,6 +7,7 @@ from torch.optim.lr_scheduler import LRScheduler, LambdaLR
 
 
 class CosineWarmupLR(LRScheduler):
+    """CosineAnnealingLR with an added linear warmup"""
 
     def __init__(
         self, optimizer: Optimizer, warmup: int, max_iters: int, lr_min: float = 0.0
@@ -32,7 +35,8 @@ class CosineWarmupLR(LRScheduler):
 
 
 class WarmupStableDecayLR(LambdaLR):
-
+    """The modern standard for training deep learning models, see https://arxiv.org/abs/2405.18392"""
+    
     def __init__(
         self,
         optimizer: Optimizer,

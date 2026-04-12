@@ -1,3 +1,16 @@
+# A recurrent ECCT decoder model
+#
+# rECCT derives from the universal transformer idea of Dehghani et al. (2019): 
+# https://arxiv.org/abs/1807.03819 
+#
+# Transposition of this idea to the ECCT architecture was first proposed in 
+# Gaston de Boni Rovella's PhD thesis: https://theses.fr/2024ESAE0065, Chap.3
+# See also: https://github.com/gastondeboni/Syndrome_Based_Neural_Decoding 
+#
+# The following is my minimal implementation of a recurrent ECCT, built on a 
+# more up-to-date and readable TF architecture than the original ECCT model
+
+
 import torch, torch.nn as nn, torch.nn.functional as F
 from torch.nn.attention import SDPBackend, sdpa_kernel
 from torch import Tensor, BoolTensor
@@ -116,7 +129,7 @@ class EncoderLayer(nn.Module):
     def __init__(self, 
                  embed_dim: int = 64, 
                  num_heads: int = 4,
-                 attn_dropout: float = 0,
+                 attn_dropout: float = 0.1,
                  ffn_expand_factor: float = 4,
                  ffn_dropout: float = 0,
                  res_dropout: float = 0.1,
@@ -163,17 +176,17 @@ class RECCT(nn.Module):
                  embed_dim: int = 64, 
                  num_heads: int = 4, 
                  num_layers: int = 6, 
-                 attn_dropout: float = 0,
+                 attn_dropout: float = 0.1,
                  ffn_expand_factor: float = 4,
                  ffn_dropout: float = 0,
-                 res_dropout: float = 0.05, 
+                 res_dropout: float = 0.1, 
                  bias: bool = False,
                  compile: bool = False,
                  output: str = "codeword"
                  ) -> None:
         super().__init__()
 
-        log.info(f"Building a {num_layers}-layer rECCT decoder")
+        log.info(f"Building a {num_layers}-layer recurrent ECCT decoder")
         log.info(f"Embedding dimension = {embed_dim}")
         log.info(f"Self-attention uses {num_heads} heads of dimension {embed_dim // num_heads}")
         log.info("Self-attention uses PyTorch's F.scaled_dot_product_attention")
@@ -210,7 +223,6 @@ class RECCT(nn.Module):
     def _build_mask(self, code: LinearCode):
         mask_size = code.n + code.m
         mask = torch.zeros(mask_size, mask_size)    # token do not attend to themselves
-        # mask = torch.eye(mask_size)                 # from Choukroun's original implementation
         for ii in range(code.m):
             idx = torch.where(code.H[ii] > 0)[0]
             for jj in idx:

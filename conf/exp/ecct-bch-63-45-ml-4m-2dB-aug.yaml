@@ -60,8 +60,8 @@ lr_scheduler:
   decay: 32
 
 trainer:
-  gradient_clip_val: 1.0
   precision: bf16-mixed
+  gradient_clip_val: 1.0
 
 # -----------------------------------------------------------------------------
 # Lightning module

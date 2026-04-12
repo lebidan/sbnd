@@ -1,3 +1,4 @@
+# Error-Correction Code Transformer model from https://arxiv.org/abs/2206.14881
 # Most of this code is taken from https://github.com/yoniLc/ECCT
 # and was released under MIT license. Copyright (c) 2022 yoniLc
 
