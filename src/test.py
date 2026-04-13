@@ -26,6 +26,7 @@ def count_parameters(model: SBNDLitModule) -> int:
 def bipolar_to_bit(x: Tensor) -> Tensor:
     return (x < 0).to(torch.int8)
 
+
 # column labels for the output csv file
 COLUMNS = ["Eb/N0", "WER", "BER", "CW errors", "Bit errors", "Total CW"]
 
@@ -140,7 +141,7 @@ def test_model(
 
 def main() -> None:
 
-    setup_logging() # mimic hydra's nice colorful logging style in the terminal
+    setup_logging()  # mimic hydra's nice colorful logging style in the terminal
 
     # Parse command-line arguments
     parser = argparse.ArgumentParser(
@@ -230,7 +231,7 @@ def main() -> None:
     )
 
     # Pretty print results in the terminal
-    # for some reason, integer numbers are evaluated as float when there are other 
+    # for some reason, integer numbers are evaluated as float when there are other
     # float columns present, see: https://github.com/astanin/python-tabulate/issues/18
     table = tabulate(
         perfs,  # type: ignore[arg-type]

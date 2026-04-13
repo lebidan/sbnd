@@ -26,7 +26,7 @@ class MockedDecoder(nn.Module):
 
         log.info(f"Using the mocked decoder")
 
-        # replace with your code 
+        # replace with your code
         # here we just use a single linear layer for demonstration purposes
         self.fc = nn.Linear(input_sz, output_sz)
 

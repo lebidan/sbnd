@@ -88,7 +88,7 @@ class StackedGRU(nn.Module):
             )  # input = [x, 0, 0, ...] along dim=1
         else:
             # input is repeated at each time step, shape (batch_size, n_steps, in_sz)
-            x = x.unsqueeze(1).expand(-1, self.n_steps, -1) 
+            x = x.unsqueeze(1).expand(-1, self.n_steps, -1)
 
         # run gru on all time steps at once (faster than one step at a time)
         out = self.gru(x)[0]  # (B, L, H)

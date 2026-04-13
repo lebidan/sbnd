@@ -1,5 +1,5 @@
 # Cross Message-Passing Transformer model from https://arxiv.org/abs/2507.01038
-# Most of this code is taken from https://github.com/iil-postech/crossmpt 
+# Most of this code is taken from https://github.com/iil-postech/crossmpt
 # and was released for non-commercial research purpose by Seong-Joon Park
 
 # Main changes with respect to the original implementation:
@@ -28,7 +28,9 @@ class Encoder(nn.Module):
         self.layers = clones(layer, N)
         self.norm = LayerNorm(layer.size)
 
-    def forward(self, x1: Tensor, x2: Tensor, mask_VN: Tensor, mask_CN: Tensor) -> Tensor:
+    def forward(
+        self, x1: Tensor, x2: Tensor, mask_VN: Tensor, mask_CN: Tensor
+    ) -> tuple[Tensor, Tensor]:
         for idx, layer in enumerate(self.layers, start=1):
             x1 = layer(x1, x2, mask_VN)
             x2 = layer(x2, x1, mask_CN)
@@ -197,30 +199,32 @@ class CrossMPT(nn.Module):
         # solution from https://github.com/pytorch/pytorch/issues/127523
         if x.stride(-1) != 1:
             x = torch.empty_like(x, memory_format=torch.contiguous_format).copy_(x)
-        return x    
+        return x
 
     def get_masks(self, code: LinearCode, invert: bool = False) -> None:
- 
+
         def build_mask(code: LinearCode, invert: bool = False):
             mask = code.H > 0
             # Original code: mask=True for elements that DON'T participate to attention
             # Need to invert for Pytorch SDPA: mask=True for elements that DO participate to attention
-            src_mask = mask if invert else ~mask 
+            src_mask = mask if invert else ~mask
             return src_mask
-        
+
         src_mask_CN = build_mask(code, invert=invert)
         src_mask_VN = src_mask_CN.T
 
-        # make sure last dim of each mask has stride=1, as this is what fast attention and 
+        # make sure last dim of each mask has stride=1, as this is what fast attention and
         # memory-efficient attention expect for *all* of their input tensors, mask included
-        # see: https://github.com/pytorch/pytorch/issues/116333        
+        # see: https://github.com/pytorch/pytorch/issues/116333
         src_mask_CN = CrossMPT._enforce_stride1_in_last_dim(src_mask_CN)
         src_mask_VN = CrossMPT._enforce_stride1_in_last_dim(src_mask_VN)
-        assert src_mask_CN.stride(-1) == 1, \
-            f"The last dim of src_mask_CN must have stride 1 (got {src_mask_CN.stride(-1)})"
-        assert src_mask_VN.stride(-1) == 1, \
-            f"The last dim of src_mask_VN must have stride 1 (got {src_mask_VN.stride(-1)})"
-        
+        assert (
+            src_mask_CN.stride(-1) == 1
+        ), f"The last dim of src_mask_CN must have stride 1 (got {src_mask_CN.stride(-1)})"
+        assert (
+            src_mask_VN.stride(-1) == 1
+        ), f"The last dim of src_mask_VN must have stride 1 (got {src_mask_VN.stride(-1)})"
+
         self.register_buffer("src_mask_VN", src_mask_VN)
         self.register_buffer("src_mask_CN", src_mask_CN)
 

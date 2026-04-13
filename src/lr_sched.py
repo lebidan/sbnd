@@ -36,7 +36,7 @@ class CosineWarmupLR(LRScheduler):
 
 class WarmupStableDecayLR(LambdaLR):
     """The modern standard for training deep learning models, see https://arxiv.org/abs/2405.18392"""
-    
+
     def __init__(
         self,
         optimizer: Optimizer,
