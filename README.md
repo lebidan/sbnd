@@ -14,14 +14,68 @@ Documentation in early stage: to be updated very soon. Stay tuned.
 
 ## Installation
 
-Requires [uv](https://docs.astral.sh/uv/getting-started/installation/).
+Clone the repository first — `conf/` (Hydra experiment configs) is not distributed
+in the wheel, so the commands below must be run from the repo root.
+
+### uv (recommended)
+
+`uv sync` reads `[tool.uv.sources]` and automatically fetches the correct PyTorch
+wheel (CUDA 12.8 on Linux/Windows, CPU/MPS on macOS). It also creates `.venv` if
+it does not already exist.
 
 ```bash
 git clone https://github.com/lebidan/sbnd.git
 cd sbnd
+uv sync                   # create .venv and install (CUDA wheel auto-resolved)
+uv sync --extra wandb     # re-run with W&B support
+uv sync --group dev       # re-run with black and mypy
+```
 
-uv sync               # runtime dependencies
-uv sync --group dev   # + black and mypy for development
+Then either activate the venv to use the CLI directly:
+
+```bash
+source .venv/bin/activate   # on Windows: .venv\Scripts\activate
+sbnd-train exp=ecct-bch-63-45-ml-4m-2dB-aug
+```
+
+or prefix commands with `uv run` (no activation needed):
+
+```bash
+uv run sbnd-train exp=ecct-bch-63-45-ml-4m-2dB-aug
+```
+
+### pip
+
+CUDA users must point pip at PyTorch's wheel index manually (`pip` does not read
+`[tool.uv.sources]`):
+
+```bash
+git clone https://github.com/lebidan/sbnd.git
+cd sbnd
+python -m venv .venv
+source .venv/bin/activate        # on Windows: .venv\Scripts\activate
+
+# Linux / Windows — CUDA 12.8
+pip install -e . --extra-index-url https://download.pytorch.org/whl/cu128
+pip install -e ".[wandb]" --extra-index-url https://download.pytorch.org/whl/cu128
+
+# macOS — CPU / MPS (standard PyPI wheel is correct)
+pip install -e .
+pip install -e ".[wandb]"
+```
+
+For development tools (the `dev` group is uv-native; install directly with pip):
+
+```bash
+pip install black mypy
+```
+
+### Running the linter and type checker
+
+```bash
+black src/           # auto-format
+black --check src/   # check only (CI)
+mypy src/            # type checking
 ```
 
 ## Usage

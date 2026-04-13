@@ -163,7 +163,10 @@ cython_debug/
 
 .claude/
 
-# Datasets, logs and checkpoints 
+# uv lock file (not committed — users install with pip or uv pip)
+uv.lock
+
+# Datasets, logs and checkpoints
 data/datasets
 log/train/runs
 

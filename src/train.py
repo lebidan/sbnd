@@ -68,8 +68,9 @@ def load_pretrained_model(model_path: str, **kwargs) -> SBNDLitModule:
     return SBNDLitModule.load_from_checkpoint(model_path, weights_only=False, **kwargs)
 
 
-# set the path to the conf directory, which is one level up from the current file
-_conf_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "conf")
+# conf/ is not part of the installed package; it lives in the project root.
+# sbnd-train must be run from the directory that contains conf/.
+_conf_dir = os.path.join(os.getcwd(), "conf")
 
 
 @hydra.main(version_base="1.3", config_path=_conf_dir, config_name="train")
