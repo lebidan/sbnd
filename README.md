@@ -17,76 +17,58 @@ Documentation in early stage: to be updated very soon. Stay tuned.
 Clone the repository first — `conf/` (Hydra experiment configs) is not distributed
 in the wheel, so the commands below must be run from the repo root.
 
-### uv (recommended)
+### uv pip (recommended)
 
-Pass `--torch-backend=auto` so uv queries your local CUDA driver and selects the
-matching PyTorch wheel automatically. Each machine gets the right build:
-CUDA 13.1 → cu131 (PyTorch 2.11), CUDA 12.8 → cu128 (PyTorch 2.9), macOS → CPU/MPS.
-`uv sync` also creates `.venv` if it does not already exist.
-
-uv treats a dependency group named `dev` as a default group, so black and mypy
-are always included. Pass `--no-dev` to exclude them.
+`uv pip install` supports `--torch-backend=auto`, which queries the local 
+accelerator available and fetches the matching PyTorch wheel automatically, 
+including CPU/MPS on Apple Silicon. Replace `".[wandb]"` with `.` if you do not
+want to use [Weights & Biases](https://wandb.ai).
 
 ```bash
 git clone https://github.com/lebidan/sbnd.git
 cd sbnd
-uv sync --torch-backend=auto            # CUDA auto-detected, incl. black and mypy
-uv sync --torch-backend=auto --extra wandb   # re-run with W&B support
-uv sync --torch-backend=auto --no-dev   # re-run without black and mypy
+uv venv                                              # create .venv
+source .venv/bin/activate                            # on Windows: .venv\Scripts\activate
+uv pip install -e ".[wandb]" --torch-backend=auto   # CUDA auto-detected, incl. W&B
 ```
 
 You can also pin a specific CUDA version explicitly:
 
 ```bash
-uv sync --torch-backend=cu128   # force CUDA 12.8 wheel
-uv sync --torch-backend=cu131   # force CUDA 13.1 wheel
+uv pip install -e ".[wandb]" --torch-backend=cu128   # force CUDA 12.8 wheel
 ```
 
-Then either activate the venv to use the CLI directly:
+To install also the development tools `black` and `mypy`:
 
 ```bash
-source .venv/bin/activate   # on Windows: .venv\Scripts\activate
-sbnd-train exp=ecct-bch-63-45-ml-4m-2dB-aug
+uv pip install black mypy
 ```
 
-or prefix commands with `uv run` (no activation needed):
+### plain pip
 
-```bash
-uv run --torch-backend=auto sbnd-train exp=ecct-bch-63-45-ml-4m-2dB-aug
-```
-
-### uv pip / pip
-
-`--torch-backend` is also available for `uv pip install`. For plain `pip`, the
-PyTorch index must be passed explicitly:
+Since PyTorch 2.6, CUDA-capable wheels are published directly to PyPI, so no
+extra index is required on Linux / Windows:
 
 ```bash
 git clone https://github.com/lebidan/sbnd.git
 cd sbnd
 python -m venv .venv
 source .venv/bin/activate   # on Windows: .venv\Scripts\activate
-
-# uv pip — auto-detect GPU (CUDA, ROCm, Intel) and pick the right wheel
-uv pip install -e . --torch-backend=auto
-uv pip install -e ".[wandb]" --torch-backend=auto
-
-# plain pip — CUDA 12.8 (Linux / Windows)
-pip install -e . --extra-index-url https://download.pytorch.org/whl/cu128
-pip install -e ".[wandb]" --extra-index-url https://download.pytorch.org/whl/cu128
-
-# plain pip — CUDA 13.1 (Linux / Windows)
-pip install -e . --extra-index-url https://download.pytorch.org/whl/cu131
-pip install -e ".[wandb]" --extra-index-url https://download.pytorch.org/whl/cu131
-
-# plain pip — macOS CPU / MPS (standard PyPI wheel is correct)
-pip install -e .
+pip install -e ".[wandb]"   # CUDA wheel served by PyPI on Linux/Windows; CPU/MPS on macOS
 ```
 
-For development tools (note: `uv pip install` does not read dependency groups;
-install black and mypy directly):
+To pin a specific CUDA variant (e.g. when the PyPI default does not match your
+driver), pass `--extra-index-url` explicitly:
 
 ```bash
-uv pip install black mypy   # or: pip install black mypy
+pip install -e ".[wandb]" --extra-index-url https://download.pytorch.org/whl/cu128
+pip install -e ".[wandb]" --extra-index-url https://download.pytorch.org/whl/cu131
+```
+
+To install the development tools:
+
+```bash
+pip install black mypy
 ```
 
 ### Running the linter and type checker
