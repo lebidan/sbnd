@@ -9,7 +9,7 @@ code:
   mat_file: ${codes_dir}/bch.63.45.mat
 
 decoder:
-  _target_: sbnd.ecct.ECC_Transformer
+  _target_: sbnd.ecct.ECCT
   n_layers: 6
   embed_dim: 128
   n_heads: 8

@@ -127,7 +127,7 @@ class PositionwiseFeedForward(nn.Module):
         return self.w_2(self.dropout(F.gelu(self.w_1(x))))
 
 
-class ECC_Transformer(nn.Module):
+class ECCT(nn.Module):
     def __init__(
         self,
         code: LinearCode,

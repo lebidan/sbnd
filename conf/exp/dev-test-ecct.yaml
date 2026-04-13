@@ -11,7 +11,7 @@ code:
   mat_file: ${codes_dir}/bch.31.21.mat
 
 decoder:
-  _target_: sbnd.ecct.ECC_Transformer
+  _target_: sbnd.ecct.ECCT
   n_layers: 6
   embed_dim: 64
   n_heads: 8

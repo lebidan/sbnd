@@ -8,7 +8,7 @@ from .utils import get_rank_zero_logger
 log = get_rank_zero_logger(__name__)
 
 
-class StackedGRUDecoder(nn.Module):
+class StackedGRU(nn.Module):
 
     def __init__(
         self,

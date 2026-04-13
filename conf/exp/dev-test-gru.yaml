@@ -11,7 +11,7 @@ code:
   mat_file: ${codes_dir}/bch.31.21.mat
 
 decoder:
-  _target_: sbnd.gru.StackedGRUDecoder
+  _target_: sbnd.gru.StackedGRU
   hidden_sz: 256
   n_layers: 2
   n_steps: 10
