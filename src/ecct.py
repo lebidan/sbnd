@@ -31,7 +31,7 @@ class Encoder(nn.Module):
         self.norm = LayerNorm(layer.size)
 
     def forward(self, x: Tensor, mask: Tensor) -> Tensor:
-        for idx, layer in enumerate(self.layers, start=1):
+        for layer in self.layers:
             x = layer(x, mask)
         return self.norm(x)
 
@@ -166,7 +166,7 @@ class ECCT(nn.Module):
         self.decoder = Encoder(
             EncoderLayer(d_model, c(attn), c(ff), res_dropout), N_dec
         )
-        self.oned_final_embed = torch.nn.Sequential(*[nn.Linear(d_model, 1)])
+        self.oned_final_embed = nn.Sequential(nn.Linear(d_model, 1))
         self.out_fc = nn.Linear(code.n + code.m, output_sz)
 
         if compile:

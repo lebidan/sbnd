@@ -227,7 +227,7 @@ class SBNDDataModule(LightningDataModule):
         test_bs: int = 1024,
         on_demand: bool = False,
         transform: Callable | None = None,
-        extra_args: dict = {},
+        extra_args: dict | None = None,
     ) -> None:
         super().__init__()
         self.code = code
@@ -242,7 +242,7 @@ class SBNDDataModule(LightningDataModule):
         self.n_test_samples, self.test_bs = n_test_samples, test_bs
         self.on_demand = on_demand
         self.transform = transform(code) if transform is not None else None
-        self.extra_args = extra_args
+        self.extra_args = extra_args if extra_args is not None else {}
         self.save_hyperparameters(
             logger=False
         )  # ensures init params will be stored in ckpt

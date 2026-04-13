@@ -31,7 +31,7 @@ class Encoder(nn.Module):
     def forward(
         self, x1: Tensor, x2: Tensor, mask_VN: Tensor, mask_CN: Tensor
     ) -> tuple[Tensor, Tensor]:
-        for idx, layer in enumerate(self.layers, start=1):
+        for layer in self.layers:
             x1 = layer(x1, x2, mask_VN)
             x2 = layer(x2, x1, mask_CN)
         return self.norm(x1), self.norm(x2)
@@ -168,7 +168,7 @@ class CrossMPT(nn.Module):
         self.decoder = Encoder(
             EncoderLayer(d_model, c(attn), c(ff), res_dropout), N_dec
         )
-        self.oned_final_embed = torch.nn.Sequential(*[nn.Linear(d_model, 1)])
+        self.oned_final_embed = nn.Sequential(nn.Linear(d_model, 1))
         self.out_fc = nn.Linear(code.n + code.m, output_sz)
 
         if compile:

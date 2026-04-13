@@ -63,10 +63,12 @@ class StackedGRU(nn.Module):
                     nn.init.kaiming_normal_(param.data, nonlinearity="tanh")
                 elif "weight_hh" in name:
                     # nn.init.kaiming_normal_(param.data, nonlinearity='tanh')
-                    sz = param.size(0)
-                    nn.init.eye_(param.data[:, :sz])
-                    nn.init.eye_(param.data[:, sz : 2 * sz])
-                    nn.init.eye_(param.data[:, 2 * sz :])
+                    sz = (
+                        param.size(0) // 3
+                    )  # weight_hh shape: (3 * hidden_sz, hidden_sz)
+                    nn.init.eye_(param.data[:sz])
+                    nn.init.eye_(param.data[sz : 2 * sz])
+                    nn.init.eye_(param.data[2 * sz :])
                 elif "bias" in name:
                     param.data.fill_(0.0)
 

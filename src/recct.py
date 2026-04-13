@@ -37,7 +37,7 @@ class SwiGLU(nn.Module):
 
     def forward(self, x: Tensor) -> Tensor:
         x, gate = x.chunk(2, dim=-1)
-        return F.sigmoid(gate * self.scaling) * x  # = SiLU(x) if scaling = 1
+        return torch.sigmoid(gate * self.scaling) * x  # = SiLU(x) if scaling = 1
 
 
 class FeedForwardNetwork(nn.Module):
@@ -118,13 +118,14 @@ class MultiHeadSelfAttention(nn.Module):
         # Output shape after self-attn: [B, H, S, DH]
         # According to pytorch's documentation, dropout needs to be manually disabled in eval mode
         dropout_p = self.attn_dropout if self.training else 0.0
-        with sdpa_kernel(
-            backends=[
-                SDPBackend.CUDNN_ATTENTION,
-                SDPBackend.FLASH_ATTENTION,
-                SDPBackend.EFFICIENT_ATTENTION,
-            ]
-        ):
+        # Prefer fused CUDA kernels when available, fall back to MATH on CPU
+        _backends = [
+            SDPBackend.CUDNN_ATTENTION,
+            SDPBackend.FLASH_ATTENTION,
+            SDPBackend.EFFICIENT_ATTENTION,
+            SDPBackend.MATH,
+        ]
+        with sdpa_kernel(backends=_backends):
             output = F.scaled_dot_product_attention(
                 q, k, v, attn_mask=mask, dropout_p=dropout_p
             )
@@ -158,9 +159,7 @@ class EncoderLayer(nn.Module):
             embed_dim, ffn_expand_factor, act=GeGLU(), dropout=ffn_dropout, bias=bias
         )
 
-    def forward(
-        self, x: Tensor, mask: BoolTensor | None = None, layer_idx: int = 1
-    ) -> Tensor:
+    def forward(self, x: Tensor, mask: BoolTensor | None = None) -> Tensor:
         xn = self.pre_norm1(x)
         x = x + self.drop(self.attn(xn, mask))
         xn = self.pre_norm2(x)
@@ -279,8 +278,8 @@ class RECCT(nn.Module):
         x = self.embed(ym, s)
 
         # iterate over the base encoder layer to refine the latent representation of the error pattern
-        for layer_idx in range(self.num_layers):
-            x = self.encode(x, self.mask, layer_idx)
+        for _ in range(self.num_layers):
+            x = self.encode(x, self.mask)
 
         # decode the result to obtain the error pattern
         return self.decode(x)
