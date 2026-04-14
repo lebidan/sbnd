@@ -1,89 +1,93 @@
-# SBND — Syndrome-Based Neural Decoding
+<div align="center">
 
-A PyTorch/Lightning framework for training and evaluating syndrome-based neural decoders for linear error-correcting codes. 
+# SBND — Syndrome-Based Neural Decoding 
 
-Documentation in early stage: to be updated very soon. Stay tuned. 
+### A PyTorch/Lightning framework for training and evaluating syndrome-based neural decoders for linear error-correcting codes.
 
-## Key features
+[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue)](https://www.python.org/)
+[![PyTorch 2.9+](https://img.shields.io/badge/PyTorch-2.9%2B-orange)](https://pytorch.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-- Ship with several decoder architectures: `StackedGRU`, `ECCT`, `CrossMPT`, `rECCT`
-- Easy to extend with your own architectures
-- Highly configurable training and evaluation functions
-- Train on fixed datasets or with on-demand data
-- Data augmentation through code automorphisms
+[Features](#key-features) | [Installation](#installation) | [Quick Start](#quick-start) | [Configuration](#configuration-guide) | [Acknowledgments](#acknowledgments)
+
+</div>
+
+---
+
+## Key Features
+
+- **Multiple decoder architectures** — ships with `StackedGRU`, `ECCT`, `CrossMPT`, and `rECCT` (a recurrent ECCT), all sharing a common interface
+- **Easy to extend** — add your own architecture using the included [template decoder](src/mocked.py)
+- **Hydra configuration** — every aspect of training is configurable via composable YAML files
+- **Flexible data pipeline** — train on pre-computed datasets or generate noisy codewords on-the-fly
+- **Data augmentation** — leverage code automorphisms to increase training diversity
+- **Multi-GPU & SLURM** — seamless distributed training via PyTorch Lightning DDP
+- **Monte Carlo evaluation** — evaluate trained models over configurable Eb/N0 ranges with BER/WER reporting
+- **Experiment tracking** — built-in CSV and [Weights & Biases](https://wandb.ai) logging with gradient/weight monitoring
 
 ## Installation
 
-Clone the repository first — `conf/` (Hydra experiment configs) is not distributed
-in the wheel, so the commands below must be run from the repo root.
+To set up a local development environment, we recommend using [uv](https://docs.astral.sh/uv/), which can be installed following [their instructions](https://docs.astral.sh/uv/getting-started/installation/).
 
-### uv pip (recommended)
-
-`uv pip install` supports `--torch-backend=auto`, which queries the local 
-accelerator available and fetches the matching PyTorch wheel automatically, 
-including CPU/MPS on Apple Silicon. Replace `".[wandb]"` with `.` if you do not
-want to use [Weights & Biases](https://wandb.ai).
+### Using uv (recommended)
 
 ```bash
 git clone https://github.com/lebidan/sbnd.git
 cd sbnd
-uv venv                                              # create .venv
-source .venv/bin/activate                            # on Windows: .venv\Scripts\activate
-uv pip install -e ".[wandb]" --torch-backend=auto   # CUDA auto-detected, incl. W&B
+uv venv
+source .venv/bin/activate            # on Windows: .venv\Scripts\activate
+uv pip install -e ".[wandb]" --torch-backend=auto
 ```
 
-You can also pin a specific CUDA version explicitly:
+The `--torch-backend=auto` command-line option will query the local accelerator and fetch the matching PyTorch wheel automatically (CUDA, CPU, or MPS on Apple Silicon). 
+Replace `".[wandb]"` with `.` if you do not need [Weights & Biases](https://wandb.ai) integration.
+To pin a specific CUDA or torch version, use:
 
 ```bash
-uv pip install -e ".[wandb]" --torch-backend=cu128   # force CUDA 12.8 wheel
+uv pip install -e ".[wandb]" torch==2.9.0 --torch-backend=cu128   # force pytorch 2.9 with CUDA 12.8
 ```
 
-To install also the development tools `black` and `mypy`:
+### Using pip
 
-```bash
-uv pip install black mypy
-```
-
-### plain pip
-
-Since PyTorch 2.6, CUDA-capable wheels are published directly to PyPI, so no
-extra index is required on Linux / Windows:
+This will install the latest pytorch and CUDA compatible wheel:
 
 ```bash
 git clone https://github.com/lebidan/sbnd.git
 cd sbnd
 python -m venv .venv
-source .venv/bin/activate   # on Windows: .venv\Scripts\activate
-pip install -e ".[wandb]"   # CUDA wheel served by PyPI on Linux/Windows; CPU/MPS on macOS
+source .venv/bin/activate            # on Windows: .venv\Scripts\activate
+pip install -e ".[wandb]"
 ```
 
-To pin a specific CUDA variant (e.g. when the PyPI default does not match your
-driver), pass `--extra-index-url` explicitly:
+To pin a specific CUDA variant when the PyPI default does not match your driver:
 
 ```bash
 pip install -e ".[wandb]" --extra-index-url https://download.pytorch.org/whl/cu128
-pip install -e ".[wandb]" --extra-index-url https://download.pytorch.org/whl/cu131
 ```
 
-To install the development tools:
+### Development tools
 
 ```bash
-pip install black mypy
+uv pip install black mypy            # or: pip install black mypy
+black src/                           # auto-format
+mypy src/                            # type checking
 ```
 
-### Running the linter and type checker
+## Quick Start 🚀
+
+### Verify your installation
+
+Running `sbnd-train` without arguments will automatically execute the default `dev-test-mocked` experiment, which trains a minimal decoder (a single linear layer) for 16 epochs on on-demand generated data:
 
 ```bash
-black src/           # auto-format
-black --check src/   # check only (CI)
-mypy src/            # type checking
+sbnd-train
 ```
 
-## Usage
+If everything is set up correctly, training should complete in a few minutes.
 
-### Train
+### Train a model
 
-Training is configured with [Hydra](https://hydra.cc). Select an experiment with `exp=`:
+Training is configured with [Hydra](https://hydra.cc). Each experiment config is located in `./conf/exp/` and defines a complete training setup: the error-correcting **code**, the **decoder** architecture, the **training data** pipeline, and the **training parameters** (optimizer, LR scheduler, precision, etc.). Use the `sbnd-train` CLI to launch a training job, selecting an experiment with `exp=`:
 
 ```bash
 sbnd-train exp=ecct-bch-63-45-ml-4m-2dB-aug
@@ -92,69 +96,287 @@ sbnd-train exp=ecct-bch-63-45-ml-4m-2dB-aug
 Any config value can be overridden on the command line:
 
 ```bash
-sbnd-train exp=ecct-bch-63-45-ml-4m-2dB-aug gpus=2 max_epochs=64 lr=0.001
+sbnd-train exp=ecct-bch-63-45-ml-4m-2dB-aug gpus=2 cpus=16 max_epochs=64 lr=0.001
 ```
 
-### Test
+See the [Configuration Guide](#configuration-guide) for details on how to create your own experiments.
 
-Evaluate a trained checkpoint over a range of Eb/N0 values:
+Training artifacts (Hydra config, logs, checkpoints) are saved under `./log/train/runs/YYYY-MM-DD_HH-MM-SS/` to make sure each run is unique. In particular, two checkpoints are saved in the `checkpoints/` run subdirectory: `last.ckpt` (model state at the latest epoch) and `<exp-file-name>-<max_epochs>epochs-<wandb-run-name>.ckpt` (best model by validation accuracy). The W&B run name suffix is omitted if W&B is not installed. 
+
+### Evaluate a model
+
+`sbnd-test` evaluates a trained checkpoint through Monte Carlo simulation over a range of Eb/N0 values, reporting **Word Error Rate (WER)** and **Bit Error Rate (BER)** (calculated on the message bits) for each SNR point:
 
 ```bash
-sbnd-test <checkpoint> --snr_min 1 --snr_max 5 --snr_step 0.5 --output results.csv
+sbnd-test /path/to/my-model.ckpt --snr_min 1 --snr_max 5 --snr_step 0.5 --num_batches 8192 --batch_size 4096 
 ```
 
-Key options:
+where `/path/to/my-model.ckpt` should have the form `./log/train/runs/YYYY-MM-DD_HH-MM-SS/checkpoints/<exp-file-name>-<max_epochs>epochs-<wandb-run-name>.ckpt` 
 
-| Option | Description |
-|---|---|
-| `--code` | Override the code `.mat` file path stored in the checkpoint |
-| `--snr_min/max/step` | Eb/N0 range to simulate (dB) |
-| `--batch_size` | Test batch size (default: 4096) |
-| `--num_batches` | Batches per SNR point (default: 1024) |
-| `--output` | Path to output CSV file |
+Results are saved to a CSV file named after the checkpoint under the output directory (default: `./log/test/`). If the file already exists, new SNR points are appended and deduplicated by Eb/N0 value, so you can extend an evaluation incrementally across multiple runs.
 
-## Data
+| Option | Default | Description |
+|---|---|---|
+| `--snr_min` / `--snr_max` / `--snr_step` | 0.0 / 5.0 / 1.0 | Eb/N₀ range to simulate (dB) |
+| `--batch_size` | 4096 | Test batch size |
+| `--num_batches` | 1024 | Number of batches per SNR point |
+| `--output` | `./log/test` | Output directory for the results CSV |
 
-Training data can be provided in two modes, controlled by `on_demand` in the experiment config:
+## Supported Codes & Decoders
 
-**Pre-computed** (`on_demand: false`): Load pre-generated `.mat` files for training and validation.
-Faster I/O at the cost of disk space. Well-suited for long training runs with a fixed SNR point.
+### Codes
 
-**On-demand** (`on_demand: true`): Generate noisy codewords on-the-fly during training.
-Avoids large dataset files and allows the training SNR to vary dynamically; uses more CPU.
+A collection of standard BCH, extended BCH, and QC-LDPC codes are shipped in `data/codes/`. Any linear code can be used by providing a MATLAB `.mat` file with the following fields:
 
-### Data Augmentation
+| Field | Required | Description |
+|---|---|---|
+| `n` | ✓ | Code length |
+| `k` | ✓ | Message length |
+| `G` | ✓ | Generator matrix (k × n) |
+| `H` | ✓ | Parity-check matrix (m × n) |
+| `dmin` | | Minimum distance (defaults to 0 if not provided) |
+| `name` | | Code family name (defaults to `"Linear"`) |
 
-For codes with cyclic or quasi-cyclic symmetry, the `transform` option applies random permutations to each batch, effectively multiplying the number of distinct training examples:
 
-- `BCHPerms` — cyclic permutations for BCH codes
-- `QCPerms` — quasi-cyclic permutations for QC-LDPC codes
+### Decoder architectures
 
-## Configuration
+SBND ships with four syndrome-based neural decoder architectures:
 
-Configuration is managed with [Hydra](https://hydra.cc).
-The base config `conf/train.yaml` sets defaults for hardware, logging, and callbacks.
-Experiment configs under `conf/exp/` override what they need.
+| Decoder | Class | Source | Reference |
+|---|---|---|---|
+| ECCT | `sbnd.ecct.ECCT` | [`ecct.py`](src/ecct.py) | [Choukroun & Wolf, 2022](https://arxiv.org/abs/2206.14881) |
+| CrossMPT | `sbnd.crossmpt.CrossMPT` | [`crossmpt.py`](src/crossmpt.py) | [Park et al., 2025](https://arxiv.org/abs/2507.01038) |
+| rECCT | `sbnd.recct.RECCT` | [`recct.py`](src/recct.py) | [de Boni Rovella, 2024](https://theses.fr/2024ESAE0065) |
+| StackedGRU | `sbnd.gru.StackedGRU` | [`gru.py`](src/gru.py) | [Bennatan et al., 2018](https://arxiv.org/abs/1802.04741) |
 
-Key top-level parameters:
+All decoders share the same interface: `forward(ym, s) → logits`, where `ym` is the normalized channel magnitude `|y|/max(|y|)`, `s` is the bipolar syndrome vector, and `logits` is the decoder prediction on the target error pattern. See [`src/mocked.py`](src/mocked.py) for a minimal template to implement your own.
 
-| Parameter | Description |
-|---|---|
-| `nodes` / `gpus` / `cpus` | Distributed training hardware |
-| `max_epochs` / `lr` | Training schedule |
-| `seed` | Global reproducibility seed (default: 1234) |
-| `offline` | Run WandB in offline mode |
-| `project` | WandB project name |
 
-Output for each run is written to `log/train/runs/<timestamp>/`, containing checkpoints, a CSV metrics file, and a Hydra config snapshot.
+## Configuration Guide 📝
 
-## Monitoring
+Training is orchestrated by `SBNDLitModule`, a PyTorch Lightning module wrapper. The SBND decoder architecture to train is passed as a constructor argument to this module. SBND models are trained in a supervised manner, to minimize the average binary cross-entropy between the predicted and target error patterns. The two main metrics monitored during training are **loss** and **accuracy** (the fraction of correctly predicted error patterns).
 
-Each training run logs to two backends:
+Training configuration is managed with [Hydra](https://hydra.cc). The base config [`conf/train.yaml`](conf/train.yaml) defines defaults for hardware, logging, and callbacks. Experiment configs under `conf/exp/` override what they need, following the naming convention `<decoder>-<code>-<data_mode>-<dataset_size>-<snr>[-aug].yaml`.
 
-- **CSV** — `metrics.csv` in the run's output directory
-- **Weights & Biases** — set `WANDB_API_KEY` and use `offline=false`; use `offline=true` for air-gapped environments
+> We recommend starting from the shipped examples in `conf/exp/` and adapting them to your needs.
 
-Monitored quantities include training/validation loss and accuracy, gradient and weight norms per layer, and Adam effective step sizes.
+### Code
 
-Checkpoints are saved under `log/train/runs/<timestamp>/checkpoints/`, keyed by best `val/acc`.
+Specify the error-correcting code by pointing to a `.mat` file (see [Codes](#codes)):
+
+```yaml
+code:
+  _target_: sbnd.codes.LinearCode
+  mat_file: ${codes_dir}/bch.63.45.mat
+```
+
+### Training data
+
+Training and evaluation data is handled by the [`SBNDDataModule`](src/data.py) class. A training sample is a pair `((|y|,s), e)`, where `(|y|,s)` is the decoder input (received LLR magnitude vector and syndrome) and `e` is the target error pattern. SBND models are trained on noisy observations `y = 1 + w` of the all-zero codeword (all-one BPSK modulated codeword), taking advantage of the fact that SBND decoding is agnostic to the transmitted codeword. On the other hand, model evaluation is conducted on randomly generated codewords. 
+
+At present, SBND supports three training data strategies:
+
+#### 1. On-demand generation (`on_demand: true`)
+
+Noisy codewords are generated randomly at every training step. The model is exposed to fresh data at each step — no sample is ever repeated across epochs. This mode avoids large dataset files and is the simplest way to get started. Note that data augmentation is not applied in this mode, since the data is already unique at every step. The downside is that the model is trained for perfect correction, an unrealistic goal that ultimately hinders WER performance (see our [ICMLCN 2025 paper](https://arxiv.org/abs/2502.10183) for details). In this mode, a training epoch consists of `n_train_samples / train_bs` training steps (batches).
+
+```yaml
+data:
+  _target_: sbnd.data.SBNDDataModule
+  ebno_dB_train: 2.0
+  on_demand: true
+  n_train_samples: 1048576
+  train_bs: 4096
+  n_val_samples: 524288
+  val_bs: 4096
+```
+
+#### 2. Pre-computed datasets (`on_demand: false` with `train_file` specified)
+
+Load training and validation data from user-supplied `.mat` files. Each file must contain a matrix of received words `y` and a matrix of target binary error patterns `e`. The same fixed dataset is reused at each epoch, which gives total control over the training distribution, making it possible to more closely approach Maximum Likelihood decoding performance with [much fewer samples than with on-demand data](https://arxiv.org/abs/2502.10183). If no `val_file` is provided, a validation set is created by random split from the training set.
+
+```yaml
+data:
+  _target_: sbnd.data.SBNDDataModule
+  ebno_dB_train: 2.0
+  on_demand: false
+  train_file: ${data_dir}/bch-63-45/train-ml-4M-2dB.mat
+  train_bs: 4096
+  val_file: ${data_dir}/bch-63-45/val-ml-512K-2dB.mat
+  val_bs: 4096
+```
+
+#### 3. Random fixed dataset (`on_demand: false` without `train_file` specified)
+
+A random training set is generated once at the start of training and reused at each epoch. This is a middle ground: no dataset files needed, but the training data remains fixed. A random validation set is also generated unless `val_file` is provided. This configuration usually results in a slightly faster convergence than with on-demand data, but with the same downside of training for perfect correction, which is ultimately unachievable.  
+
+```yaml
+data:
+  _target_: sbnd.data.SBNDDataModule
+  ebno_dB_train: 2.0
+  on_demand: false
+  n_train_samples: 1048576
+  train_bs: 4096
+  n_val_samples: 524288
+  val_bs: 4096
+```
+
+#### Pre-computed dataset format and download
+
+Pre-computed training datasets are too large to ship with the repository. Most of the training experiments in the `conf/exp/` directory can be reproduced with the datasets listed below. Each dataset consists of ML error patterns collected by standard Monte-Carlo simulation of an ordered statistics decoder (OSD), and comes as a bundle of training and validation data. 
+
+| Code | Dataset description | Size | Link |
+|---|---|---|---|
+| BCH(31,21,5) | ML training (4M) and validation (512K) samples collected at Eb/N0 = 3 dB | ~1 GB | [Download](https://sdrive.cnrs.fr/s/bKBHagxAwLiNNzn) |
+| BCH(63,45,7) | ML training (4M) and validation (512K) samples collected at Eb/N0 = 2 dB | ~2.2 GB | [Download](https://sdrive.cnrs.fr/s/wMDN6beY2Gnb7rg) |
+
+Each dataset is stored as a `.mat` and must contain at least the following fields:
+
+| Field | Type | Shape | Description |
+|---|---|---|---|
+| `y` | float | (N, n) | Received words (channel output) |
+| `e` | float/int8 | (N, n) | Target binary error patterns (ML decoder decisions) |
+
+`N` is the number of samples, `n` is the code length.
+
+Both MATLAB v7 and v7.3 (HDF5) formats are supported.
+
+Additional datasets used to produce the results in our [ICMLCN 2025 paper](https://arxiv.org/abs/2502.10183) can be found on the [AI4CODE website](https://ai4code.projects.labsticc.fr/software/), or via their [official DOI](https://doi.org/10.57745/FWE4FB).
+
+#### Data augmentation
+
+For modes 2 and 3 (fixed datasets), data augmentation can be enabled via the `transform` option. This applies random permutations from the code's automorphism group to each batch, effectively multiplying the number of distinct training examples. At present, the following code-specific transforms are available:
+
+- `BCHPerms` — cyclic × Frobenius permutations for BCH codes
+- `QCPerms` — quasi-cyclic shift permutations for QC-LDPC codes (requires the circulant size `Zc`)
+
+```yaml
+data:
+  transform:
+    _partial_: true
+    _target_: sbnd.transforms.BCHPerms   # or sbnd.transforms.QCPerms
+```
+
+### Model
+
+Select a decoder architecture and configure its hyperparameters:
+
+```yaml
+decoder:
+  _target_: sbnd.ecct.ECCT
+  n_layers: 6
+  embed_dim: 128
+  n_heads: 8
+  attn_dropout: 0.1
+  res_dropout: 0.01
+  use_fast_attn: true
+  compile: true
+```
+
+Each architecture exposes its own set of parameters. Refer to the corresponding source file for the full list of options.
+
+### Trainer
+
+Any standard PyTorch optimizer can be used via Hydra's `_target_` mechanism. `AdamW` is recommended for transformer-based decoders:
+
+```yaml
+max_epochs: 512
+lr: 0.001
+
+optimizer:
+  _partial_: true
+  _target_: torch.optim.AdamW
+  lr: ${lr}
+  weight_decay: 0.01
+```
+
+Similarly, any PyTorch LR scheduler can be used. Two convenience schedulers are provided: `CosineWarmupLR` (cosine annealing with linear warmup) and `WarmupStableDecayLR` (warmup–stable–decay, recommended; see [Hu et al., 2024](https://arxiv.org/abs/2405.18392)):
+
+```yaml
+lr_scheduler:
+  _partial_: true
+  _target_: sbnd.lr_sched.WarmupStableDecayLR
+  total: ${max_epochs}
+  warmup: 10
+  decay: 32
+
+trainer:
+  precision: bf16-mixed
+  gradient_clip_val: 1.0
+```
+
+For the full list of supported trainer options, see the [Lightning Trainer documentation](https://lightning.ai/docs/pytorch/stable/common/trainer.html).
+
+**Resuming and continuing training** — two flags are available for working with existing checkpoints:
+
+- `resume=<path>` — resume an interrupted training run from a checkpoint (typically `last.ckpt`). All parameters are restored from the checkpoint and training continues where it left off:
+  ```bash
+  sbnd-train exp=ecct-bch-63-45-ml-4m-2dB-aug resume=log/train/runs/.../checkpoints/last.ckpt
+  ```
+
+- `continue=<path>` — start a new training run using a pre-trained model as initialization. The model weights are loaded from the checkpoint, but optimizer, scheduler, and other training parameters are taken from the current config:
+  ```bash
+  sbnd-train exp=ecct-bch-63-45-ml-4m-2dB-aug continue=log/train/runs/.../checkpoints/best.ckpt lr=0.0001 max_epochs=128
+  ```
+
+**Logging** — CSV logging is always enabled. [Weights & Biases](https://wandb.ai) logging is automatically activated when the `wandb` package is installed (use `pip install -e ".[wandb]"`). Set `offline=true` in the config to use W&B in offline mode.
+
+## Project Structure
+
+```
+sbnd/
+├── conf/
+│   ├── train.yaml              # Base Hydra config (hardware, logging, callbacks)
+│   └── exp/                    # Experiment configs
+├── data/
+│   └── codes/                  # Code definition .mat files (G, H, n, k)
+├── src/                        # Python package (installed as `sbnd`)
+│   ├── codes.py                # LinearCode class
+│   ├── data.py                 # Data module, datasets, batch generation
+│   ├── model.py                # SBNDLitModule (Lightning training wrapper)
+│   ├── ecct.py                 # ECCT decoder
+│   ├── crossmpt.py             # CrossMPT decoder
+│   ├── recct.py                # rECCT decoder
+│   ├── gru.py                  # StackedGRU decoder
+│   ├── mocked.py               # Minimal template decoder
+│   ├── transforms.py           # Data augmentation (BCHPerms, QCPerms)
+│   ├── lr_sched.py             # LR schedulers (CosineWarmupLR, WarmupStableDecayLR)
+│   ├── train.py                # sbnd-train entry point
+│   ├── test.py                 # sbnd-test entry point
+│   └── utils.py                # Logging utilities
+├── pyproject.toml              # Package metadata and dependencies
+└── LICENSE                     # MIT License
+```
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).
+
+## Acknowledgments
+
+Much of this code was developed within the framework of the [ANR-21 AI4CODE project](https://ai4code.projects.labsticc.fr/).
+
+The following decoder implementations are adapted from their original authors' code:
+
+- **ECCT** — adapted from [yoniLc/ECCT](https://github.com/yoniLc/ECCT) (MIT License), by Y. Choukroun and L. Wolf
+- **CrossMPT** — adapted from [iil-postech/crossmpt](https://github.com/iil-postech/crossmpt), by S.-J. Park et al.
+
+This project has greatly benefited from the following open-source software:
+
+- [PyTorch](https://pytorch.org/) — deep learning framework
+- [Lightning](https://lightning.ai/) — training infrastructure and multi-GPU support
+- [Hydra](https://hydra.cc/) — configuration management
+
+
+## Citation
+
+If you find this code useful for your own research, please cite:
+
+```bibtex
+@misc{lebidan2026sbnd,
+      title={SBND: Syndrome-based neural decoding for linear error-correcting codes}, 
+      author={Raphaël Le Bidan},
+      year={2026},
+      url={https://github.com/lebidan/sbnd}, 
+}
+```
