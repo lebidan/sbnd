@@ -1,6 +1,7 @@
 <h1 align="center">
-  <a href="https://github.com/lebidan/sbnd"><img src="https://github.com/lebidan/sbnd/raw/main/media/logo.png?raw=true" width=55%></a><br>
-  <br>Syndrome-Based Neural Decoding<br>
+![`SBND`](media/logo.png)
+
+ Syndrome-Based Neural Decoding
 </h1>
 
 <p align="center">
@@ -18,7 +19,7 @@
 
 ---
 
-## Key Features
+## Features
 
 * **Multiple decoder architectures** — ships with `StackedGRU`, `ECCT`, `CrossMPT`, and `rECCT` (a recurrent ECCT), all sharing a common interface
 * **Easy to extend** — add your own architecture using the included [template decoder](https://github.com/lebidan/sbnd/blob/main/src/mocked.py)
