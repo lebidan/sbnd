@@ -1,7 +1,10 @@
+<p align="center">
+  <picture>
+    <img alt="SBND" src="https://raw.githubusercontent.com/lebidan/sbnd/main/media/logo.png?raw=true" width=30%>
+  </picture>
+</p>
 <h1 align="center">
-![`SBND`](media/logo.png)
-
- Syndrome-Based Neural Decoding
+Syndrome-Based Neural Decoding
 </h1>
 
 <p align="center">
@@ -84,7 +87,7 @@ mypy src/                            # type checking
 
 ### Verify your installation
 
-Running `sbnd-train` without arguments will automatically execute the default [`dev-test-mocked`](https://github.com/lebidan/sbnd/tree/main/conf/exp) experiment, which trains a minimal decoder (a single linear layer) for 16 epochs on on-demand generated data:
+Running `sbnd-train` without arguments will automatically execute the default [`dev-test-mocked`](https://github.com/lebidan/sbnd/tree/main/conf/exp/dev-test-mocked.yaml) experiment, which trains a minimal decoder (a single linear layer) for 16 epochs on on-demand generated data:
 
 ```
 sbnd-train
@@ -94,7 +97,9 @@ If everything is set up correctly, training should complete in a few minutes.
 
 ### Train a model
 
-Training is configured with [Hydra](https://hydra.cc). Each experiment config is located in [`conf/exp/`](https://github.com/lebidan/sbnd/tree/main/conf/exp) and defines a complete training setup: the error-correcting **code**, the **decoder** architecture, the **training data** pipeline, and the **training parameters** (optimizer, LR scheduler, precision, etc.). Use the `sbnd-train` CLI to launch a training job, selecting an experiment with `exp=`:
+Training is configured with [Hydra](https://hydra.cc). Each experiment config is located in [`conf/exp/`](https://github.com/lebidan/sbnd/tree/main/conf/exp) and defines a complete training setup: the error-correcting **code**, the **decoder** architecture, the **training data** pipeline, and the **training parameters** (optimizer, LR scheduler, precision, etc.). 
+
+Use the `sbnd-train` CLI to launch a training job, selecting an experiment with `exp=`:
 
 ```
 sbnd-train exp=ecct-bch-63-45-ml-4m-2dB-aug
@@ -152,10 +157,12 @@ SBND ships with four syndrome-based neural decoder architectures:
 
 | Decoder | Class | Source | Reference |
 | --- | --- | --- | --- |
+| StackedGRU | `sbnd.gru.StackedGRU` | [`gru.py`](https://github.com/lebidan/sbnd/blob/main/src/gru.py) | [Bennatan et al., 2018](https://arxiv.org/abs/1802.04741) |
 | ECCT | `sbnd.ecct.ECCT` | [`ecct.py`](https://github.com/lebidan/sbnd/blob/main/src/ecct.py) | [Choukroun & Wolf, 2022](https://arxiv.org/abs/2206.14881) |
 | CrossMPT | `sbnd.crossmpt.CrossMPT` | [`crossmpt.py`](https://github.com/lebidan/sbnd/blob/main/src/crossmpt.py) | [Park et al., 2025](https://arxiv.org/abs/2507.01038) |
 | rECCT | `sbnd.recct.RECCT` | [`recct.py`](https://github.com/lebidan/sbnd/blob/main/src/recct.py) | [de Boni Rovella, 2024](https://theses.fr/2024ESAE0065) |
-| StackedGRU | `sbnd.gru.StackedGRU` | [`gru.py`](https://github.com/lebidan/sbnd/blob/main/src/gru.py) | [Bennatan et al., 2018](https://arxiv.org/abs/1802.04741) |
+
+The stacked GRU decoder is the straightforward implementation of Bennatan et al.'s (2018) architecture. ECCT and CrossMPT are essentially the verbatim copies of the original implementations, with some little refactoring to speed up attention calculations and a few minor tweaks here and there to slightly improve accuracy. The rECCT decoder is a recurrent implementation of ECCT which can reach comparable performance with fewer parameters (about 10x less in certain cases).
 
 All decoders share the same interface: `forward(ym, s) → logits`, where `ym` is the normalized channel magnitude `|y|/max(|y|)`, `s` is the bipolar syndrome vector, and `logits` is the decoder prediction of the target error pattern. See [`src/mocked.py`](https://github.com/lebidan/sbnd/blob/main/src/mocked.py) for a minimal template to implement your own.
 
