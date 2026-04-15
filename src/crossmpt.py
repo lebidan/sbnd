@@ -118,9 +118,8 @@ class MultiHeadedAttention(nn.Module):
 class PositionwiseFeedForward(nn.Module):
     def __init__(self, d_model: int, d_ff: int, dropout: float = 0) -> None:
         super(PositionwiseFeedForward, self).__init__()
-        self.w_1 = nn.Linear(
-            d_model, d_ff, bias=False
-        )  # modif RLB: disable bias for both FFN layers
+        # modif RLB: disable bias for both FFN layers
+        self.w_1 = nn.Linear(d_model, d_ff, bias=False)
         self.w_2 = nn.Linear(d_ff, d_model, bias=False)
         self.dropout = nn.Dropout(dropout)
 

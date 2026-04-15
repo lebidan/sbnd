@@ -12,7 +12,7 @@
 
 
 import torch, torch.nn as nn, torch.nn.functional as F
-from torch.nn.attention import SDPBackend, sdpa_kernel
+from torch.nn.attention import sdpa_kernel
 from torch import Tensor, BoolTensor
 from .codes import LinearCode
 from .utils import get_rank_zero_logger
@@ -71,14 +71,9 @@ class EmbeddingLayer(nn.Module):
         self.embed = nn.Embedding(vocab_size, embed_dim)
 
     def forward(self, ym: Tensor, s: Tensor) -> Tensor:
-        # Original implementation (assume one embedding vector per dim of x)
+        # Original ECCT approach (assume one embedding vector per dim of x)
         x = torch.cat([ym, s], dim=1)
         return self.embed.weight.unsqueeze(0) * x.unsqueeze(-1)
-
-        # Alternative implementation, with 2 embed (one for mag, another for synd)
-        # emb_ym = self.embed.weight[0].unsqueeze(0) * ym.unsqueeze(-1)
-        # emb_s  = self.embed.weight[1].unsqueeze(0) * s.unsqueeze(-1)
-        # return torch.cat([emb_ym, emb_s], dim=1)
 
 
 class MultiHeadSelfAttention(nn.Module):
@@ -118,17 +113,9 @@ class MultiHeadSelfAttention(nn.Module):
         # Output shape after self-attn: [B, H, S, DH]
         # According to pytorch's documentation, dropout needs to be manually disabled in eval mode
         dropout_p = self.attn_dropout if self.training else 0.0
-        # Prefer fused CUDA kernels when available, fall back to MATH on CPU
-        _backends = [
-            SDPBackend.CUDNN_ATTENTION,
-            SDPBackend.FLASH_ATTENTION,
-            SDPBackend.EFFICIENT_ATTENTION,
-            SDPBackend.MATH,
-        ]
-        with sdpa_kernel(backends=_backends):
-            output = F.scaled_dot_product_attention(
-                q, k, v, attn_mask=mask, dropout_p=dropout_p
-            )
+        output = F.scaled_dot_product_attention(
+            q, k, v, attn_mask=mask, dropout_p=dropout_p
+        )
 
         # Re-assemble heads outputs side-by-side: [B, H, S, DH] -> [B, S, H * DH]
         output = output.transpose(1, 2).reshape(B, S, D)
@@ -189,8 +176,9 @@ class RECCT(nn.Module):
         self,
         code: LinearCode,
         embed_dim: int = 64,
-        num_heads: int = 4,
-        num_layers: int = 6,
+        n_heads: int = 4,
+        n_layers: int = 1,
+        n_iters: int = 6,
         attn_dropout: float = 0.1,
         ffn_expand_factor: float = 4,
         ffn_dropout: float = 0,
@@ -201,35 +189,40 @@ class RECCT(nn.Module):
     ) -> None:
         super().__init__()
 
-        log.info(f"Building a {num_layers}-layer recurrent ECCT decoder")
+        log.info(f"Building a {n_layers}-layer recurrent ECCT decoder")
+        log.info(f"The rECCT decoder iterates {n_iters} times over itself internally")
         log.info(f"Embedding dimension = {embed_dim}")
         log.info(
-            f"Self-attention uses {num_heads} heads of dimension {embed_dim // num_heads}"
+            f"Self-attention uses {n_heads} heads of dimension {embed_dim // n_heads}"
         )
         log.info("Self-attention uses PyTorch's F.scaled_dot_product_attention")
-        assert (
-            (embed_dim // num_heads) % 8
-        ) == 0, (
-            "CUDA fast SDPA fused kernels require head dimension to be a multiple of 8"
-        )
+        if (embed_dim // n_heads) % 8 != 0:
+            log.warning(
+                "Fast CUDA fused kernels for SDPA require head dim to be a multiple of 8"
+            )
         log.info(f"FFN expansion factor = {ffn_expand_factor:.1f}")
 
-        self.num_layers = num_layers
+        self.n_iters = n_iters
+        self.n_layers = n_layers
 
         # build attn mask from PCM
         self.register_buffer("mask", self._build_mask(code))
 
         # build the different layers of the rECCT decoder
-        # self.embed = EmbeddingLayer(2, embed_dim)
         self.embed = EmbeddingLayer(code.n + code.m, embed_dim)
-        self.encode = EncoderLayer(
-            embed_dim,
-            num_heads,
-            attn_dropout,
-            ffn_expand_factor,
-            ffn_dropout,
-            res_dropout,
-            bias=bias,
+        self.encoding_layers = nn.ModuleList(
+            [
+                EncoderLayer(
+                    embed_dim,
+                    n_heads,
+                    attn_dropout,
+                    ffn_expand_factor,
+                    ffn_dropout,
+                    res_dropout,
+                    bias=bias,
+                )
+                for _ in range(n_layers)
+            ]
         )
         output_size = code.k if output == "message" else code.n
         self.decode = DecoderLayer(embed_dim, code.n + code.m, output_size, bias=bias)
@@ -237,7 +230,8 @@ class RECCT(nn.Module):
         if compile:
             log.info("Compiling model layers for faster training")
             self.embed.compile()
-            self.encode.compile()
+            for layer in self.encoding_layers:
+                layer.compile()
             self.decode.compile()
 
         # initialize parameters
@@ -277,9 +271,10 @@ class RECCT(nn.Module):
         # generate the embedding vectors from the input
         x = self.embed(ym, s)
 
-        # iterate over the base encoder layer to refine the latent representation of the error pattern
-        for _ in range(self.num_layers):
-            x = self.encode(x, self.mask)
+        # iterate over the base encoder layers to refine the latent representation of the error pattern
+        for _ in range(self.n_iters):
+            for layer in self.encoding_layers:
+                x = layer(x, self.mask)
 
         # decode the result to obtain the error pattern
         return self.decode(x)

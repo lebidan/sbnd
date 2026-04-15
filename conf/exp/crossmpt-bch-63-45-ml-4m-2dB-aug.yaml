@@ -1,46 +1,47 @@
 # @package _global_
 
-offline: true # set wandb logger in offline mode for dev tests
-
 # -----------------------------------------------------------------------------
 # Code & neural decoder
 # -----------------------------------------------------------------------------
 
 code:
   _target_: sbnd.codes.LinearCode
-  mat_file: ${codes_dir}/bch.31.21.mat
+  mat_file: ${codes_dir}/bch.63.45.mat
 
 decoder:
-  _target_: sbnd.recct.RECCT
-  embed_dim: 64
+  _target_: sbnd.crossmpt.CrossMPT
+  n_layers: 6
+  embed_dim: 128
   n_heads: 8
-  n_layers: 1
-  n_iters: 6
   attn_dropout: 0.1
-  res_dropout: 0.1
+  use_fast_attn: true
+  compile: true
 
 # -----------------------------------------------------------------------------
 # Datasets for training, validation and testing
 # -----------------------------------------------------------------------------
-# 512K = 524288, 1M = 1048576, 2M = 2097152, 4M = 4194304, 16M = 16777216
+# 512K = 524288, 1M = 1048576, 2M = 2097152, 4M = 4194304, 16M = 16777216, 1B = 1073741824
 
 data:  
   _target_: sbnd.data.SBNDDataModule
-  ebno_dB_train: 3.0
-  on_demand: true
-  n_train_samples: 1048576
+  ebno_dB_train: 2.0
+  on_demand: false
+  train_file: ${data_dir}/bch-63-45/train-ml-4M-2dB.mat
   train_bs: 4096
-  n_val_samples: 524288
+  val_file: ${data_dir}/bch-63-45/val-ml-512K-2dB.mat
   val_bs: 4096
   ebno_dB_test: [2.0, 3.0, 4.0]
   n_test_samples: 2097152
   test_bs: 4096
+  transform:
+    _partial_: true
+    _target_: sbnd.transforms.BCHPerms
 
 # -----------------------------------------------------------------------------
 # Model-specific training setup
 # -----------------------------------------------------------------------------
 
-max_epochs: 16
+max_epochs: 512
 lr: 0.001
 
 optimizer:
@@ -54,13 +55,13 @@ lr_scheduler:
   _partial_: true
   _target_: sbnd.lr_sched.WarmupStableDecayLR
   total: ${max_epochs}
-  warmup: 8
-  decay: 0
-  
+  warmup: 10
+  decay: 32
+
 trainer:
   precision: bf16-mixed
   gradient_clip_val: 1.0
-  
+
 # -----------------------------------------------------------------------------
 # Lightning module
 # -----------------------------------------------------------------------------
