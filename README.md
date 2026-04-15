@@ -1,5 +1,5 @@
 <h1 align="center">
-  <a href="https://github.com/lebidan/sbnd"><img src="https://raw.githubusercontent.com/lebidan/sbnd/media/logo.png" width="180" /></a>
+  <a href="https://github.com/lebidan/sbnd"><img src="https://github.com/lebidan/sbnd/raw/main/media/logo.png?raw=true" width=55%></a><br>
   <br>Syndrome-Based Neural Decoding<br>
 </h1>
 
