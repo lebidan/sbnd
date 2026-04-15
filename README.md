@@ -1,6 +1,6 @@
 <p align="center">
   <picture>
-    <img alt="SBND" src="https://raw.githubusercontent.com/lebidan/sbnd/main/media/logo.png?raw=true" width=30%>
+    <img alt="SBND" src="https://raw.githubusercontent.com/lebidan/sbnd/main/media/logo.png?raw=true" width=55%>
   </picture>
 </p>
 <h1 align="center">
