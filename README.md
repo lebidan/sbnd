@@ -14,7 +14,7 @@ Syndrome-Based Neural Decoding
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://github.com/lebidan/sbnd/blob/main/LICENSE)
 [![Version](https://img.shields.io/badge/version-0.1.0-lightgrey)]()
 
-[Overview](#why-sbnd) | [Features](#key-features) | [Installation](#installation) | [Getting Started](#getting-started) | [Codes & Decoders](#supported-codes--decoders) | [Configuration](#configuration-guide) | [Project Structure](#project-structure) | [Acknowledgments](#acknowledgments)
+[Overview](#-why-sbnd) | [Features](#-features) | [Installation](#-installation) | [Getting Started](#-getting-started) | [Codes & Decoders](#-supported-codes--decoders) | [Configuration](#-configuration-guide) | [Structure](#-project-structure) | [Contributing](#-contributing) | [Acknowledgments](#acknowledgments)
 
 **`SBND`** is a PyTorch/Lightning framework for training and evaluating syndrome-based neural decoders for linear error-correcting codes.
 
@@ -28,7 +28,7 @@ Syndrome-based neural decoding holds real promise for soft-decision decoding of 
 
 `SBND` is built for researchers who want to close that gap. It ships with multiple architectures, reproducible baselines, and a clean training infrastructure — everything you need to run experiments, test new ideas, and push neural decoders further than they've been before.
 
-<img alt="Splash" src="https://raw.githubusercontent.com/lebidan/sbnd/main/media/fer_63_45.png?raw=true" width=50%>
+<img alt="Splash" src="https://raw.githubusercontent.com/lebidan/sbnd/main/media/fer_63_45.png?raw=true" width=90%>
 
 ## 🎯 Features
 
