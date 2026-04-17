@@ -7,6 +7,9 @@
 # Gaston de Boni Rovella's PhD thesis: https://theses.fr/2024ESAE0065, Chap.3
 # See also: https://github.com/gastondeboni/Syndrome_Based_Neural_Decoding
 #
+# There has been renewed interest recently in recurrent transformers as a 
+# parameter-efficient architecture (see papers on looped transformers).
+# 
 # The following is my minimal implementation of a recurrent ECCT, built on a
 # more up-to-date and readable TF architecture than the original ECCT model
 
@@ -272,8 +275,8 @@ class RECCT(nn.Module):
         x = self.embed(ym, s)
 
         # iterate over the base encoder layers to refine the latent representation of the error pattern
-        for _ in range(self.n_iters):
-            for layer in self.encoding_layers:
+        for layer in self.encoding_layers:
+            for _ in range(self.n_iters):
                 x = layer(x, self.mask)
 
         # decode the result to obtain the error pattern

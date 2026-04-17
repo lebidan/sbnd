@@ -9,13 +9,13 @@ code:
   mat_file: ${codes_dir}/bch.63.45.mat
 
 decoder:
-  _target_: sbnd.recct.RECCT
-  embed_dim: 192
-  n_heads: 6
-  n_layers: 1
-  n_iters: 10
+  _target_: sbnd.ecct.ECCT
+  n_layers: 6
+  embed_dim: 128
+  n_heads: 8
   attn_dropout: 0.1
-  res_dropout: 0.1
+  res_dropout: 0.01
+  use_fast_attn: true
   compile: true
 
 # -----------------------------------------------------------------------------
@@ -28,6 +28,7 @@ data:
   ebno_dB_train: 2.0
   on_demand: false
   train_file: ${data_dir}/bch-63-45/train-ml-4M-2dB.mat
+  n_train_samples: 1048576
   train_bs: 4096
   val_file: ${data_dir}/bch-63-45/val-ml-512K-2dB.mat
   val_bs: 4096
@@ -42,7 +43,7 @@ data:
 # Model-specific training setup
 # -----------------------------------------------------------------------------
 
-max_epochs: 512
+max_epochs: 128
 lr: 0.001
 
 optimizer:
