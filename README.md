@@ -14,15 +14,23 @@ Syndrome-Based Neural Decoding
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://github.com/lebidan/sbnd/blob/main/LICENSE)
 [![Version](https://img.shields.io/badge/version-0.1.0-lightgrey)]()
 
-[Features](#key-features) | [Installation](#installation) | [Quick Start](#quick-start) | [Codes & Decoders](#supported-codes--decoders) | [Configuration](#configuration-guide) | [Project Structure](#project-structure) | [Acknowledgments](#acknowledgments)
+[Overview](#why-sbnd) | [Features](#key-features) | [Installation](#installation) | [Getting Started](#getting-started) | [Codes & Decoders](#supported-codes--decoders) | [Configuration](#configuration-guide) | [Project Structure](#project-structure) | [Acknowledgments](#acknowledgments)
 
-**SBND** is a PyTorch/Lightning framework for training and evaluating syndrome-based neural decoders for linear error-correcting codes.
+**`SBND`** is a PyTorch/Lightning framework for training and evaluating syndrome-based neural decoders for linear error-correcting codes.
 
 </p>
 
 ---
 
-## Features
+## 👀 Why SBND? 
+
+Syndrome-based neural decoding holds real promise for soft-decision decoding of short, high-rate codes — but the field is still wide open. Performance lags behind classical decoders like OSD or Chase-2, scaling laws are proorly understood, and more parameter-efficient architectures are yet to be found.
+
+`SBND` is built for researchers who want to close that gap. It ships with multiple architectures, reproducible baselines, and a clean training infrastructure — everything you need to run experiments, test new ideas, and push neural decoders further than they've been before.
+
+<img alt="Splash" src="https://raw.githubusercontent.com/lebidan/sbnd/main/media/fer_63_45.png?raw=true" width=50%>
+
+## 🎯 Features
 
 * **Multiple decoder architectures** — ships with `StackedGRU`, `ECCT`, `CrossMPT`, and `rECCT` (a recurrent ECCT), all sharing a common interface
 * **Easy to extend** — add your own architecture using the included [template decoder](https://github.com/lebidan/sbnd/blob/main/src/mocked.py)
@@ -33,7 +41,7 @@ Syndrome-Based Neural Decoding
 * **Monte Carlo evaluation** — evaluate trained models over configurable Eb/N0 ranges with BER/WER reporting
 * **Experiment tracking** — built-in CSV and [Weights & Biases](https://wandb.ai) logging with gradient/weight monitoring
 
-## Installation
+## 💻 Installation
 
 To set up a local development environment, we recommend using [uv](https://docs.astral.sh/uv/), which can be installed following [their instructions](https://docs.astral.sh/uv/getting-started/installation/).
 
@@ -83,7 +91,7 @@ black src/                           # auto-format
 mypy src/                            # type checking
 ```
 
-## Quick Start 🚀
+## 🚀 Getting Started 
 
 ### Verify your installation
 
@@ -136,7 +144,7 @@ Results are saved to a CSV file named after the checkpoint under the output dire
 | `--num_batches` | 1024 | Number of batches per SNR point |
 | `--output` | `./log/test` | Output directory for the results CSV |
 
-## Supported Codes & Decoders
+## 🔍 Supported Codes & Decoders
 
 ### Codes
 
@@ -166,7 +174,7 @@ The stacked GRU decoder is the straightforward implementation of Bennatan et al.
 
 All decoders share the same interface: `forward(ym, s) → logits`, where `ym` is the normalized channel magnitude `|y|/max(|y|)`, `s` is the bipolar syndrome vector, and `logits` is the decoder prediction of the target error pattern. See [`src/mocked.py`](https://github.com/lebidan/sbnd/blob/main/src/mocked.py) for a minimal template to implement your own.
 
-## Configuration Guide 📝
+## 📝 Configuration Guide 
 
 Training is orchestrated by [`SBNDLitModule`](https://github.com/lebidan/sbnd/blob/main/src/model.py), a PyTorch Lightning module wrapper. The SBND decoder architecture to train is passed as a constructor argument to this module. SBND models are trained in a supervised manner, to minimize the average binary cross-entropy between the predicted and target error patterns. The two main metrics monitored during training are **loss** and **accuracy** (the fraction of correctly predicted error patterns).
 
@@ -338,7 +346,7 @@ We recommend using `bf16-mixed` precision for faster training without loss of ac
 
 **Logging** — CSV logging is always enabled. [Weights & Biases](https://wandb.ai) logging is automatically activated when the `wandb` package is installed. To use W&B in offline mode, set `offline: true` in your experiment config or pass `offline=true` on the command line.
 
-## Project Structure
+## 📁 Project Structure
 
 ```
 sbnd/
@@ -365,11 +373,11 @@ sbnd/
 └── LICENSE                     # MIT License
 ```
 
-## License
+## ⚖️ License
 
 This project is licensed under the [MIT License](https://github.com/lebidan/sbnd/blob/main/LICENSE).
 
-## Contributing
+## 🤝 Contributing
 
 Contributions are welcome. Please open an [issue](https://github.com/lebidan/sbnd/issues) to report bugs or suggest features, and feel free to submit pull requests.
 
@@ -390,7 +398,7 @@ This project has greatly benefited from the following open-source software:
 
 ## Citation
 
-If you find this code useful for your own research, please cite:
+If you find this code helpful in your project or research, please consider citing it:
 
 ```bibtex
 @misc{lebidan2026sbnd,
