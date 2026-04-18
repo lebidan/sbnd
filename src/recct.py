@@ -15,12 +15,19 @@
 
 
 import torch, torch.nn as nn, torch.nn.functional as F
-from torch.nn.attention import sdpa_kernel
-from torch import Tensor, BoolTensor
+from torch.nn.attention.flex_attention import (
+    flex_attention,
+    create_block_mask,
+    BlockMask,
+)
+from torch import Tensor
 from .codes import LinearCode
 from .utils import get_rank_zero_logger
 
 log = get_rank_zero_logger(__name__)
+
+# compile once at module level; called everywhere through this handle
+_flex_attention = torch.compile(flex_attention)
 
 
 class GeGLU(nn.Module):
@@ -100,7 +107,7 @@ class MultiHeadSelfAttention(nn.Module):
         self.W_qkv = nn.Linear(input_dim, 3 * input_dim, bias=bias)
         self.W_out = nn.Linear(input_dim, input_dim, bias=bias)
 
-    def forward(self, x: Tensor, mask: BoolTensor | None = None) -> Tensor:
+    def forward(self, x: Tensor, block_mask: BlockMask | None = None) -> Tensor:
 
         # batch size (B), sequence length (S), input dim (D), heads (H), head dim (DH)
         B, S, D = x.shape
@@ -112,13 +119,19 @@ class MultiHeadSelfAttention(nn.Module):
         qkv = qkv.transpose(1, 3)  # [B, H, 3, S, DH]
         q, k, v = qkv.unbind(dim=2)  # [B, H, S, DH] each
 
-        # SDPA using PyTorch's scaled_dot_product_attention
-        # Output shape after self-attn: [B, H, S, DH]
-        # According to pytorch's documentation, dropout needs to be manually disabled in eval mode
-        dropout_p = self.attn_dropout if self.training else 0.0
-        output = F.scaled_dot_product_attention(
-            q, k, v, attn_mask=mask, dropout_p=dropout_p
-        )
+        # Attention dropout via score_mod: Bernoulli mask on the pre-softmax scores.
+        # Note: FlexAttention has no post-softmax dropout equivalent to SDPA's dropout_p;
+        # the surviving scores are simply renormalized by softmax (no 1/(1-p) rescaling).
+        score_mod = None
+        if self.training and self.attn_dropout > 0:
+            keep = torch.rand(B, H, S, S, device=x.device) >= self.attn_dropout
+
+            def score_mod(score, b, h, q_idx, kv_idx):  # type: ignore[misc]
+                return torch.where(keep[b, h, q_idx, kv_idx], score, float("-inf"))
+
+        # FlexAttention: [B, H, S, DH]
+        output = _flex_attention(q, k, v, score_mod=score_mod, block_mask=block_mask)
+        assert isinstance(output, Tensor)  # narrow Union return type for mypy
 
         # Re-assemble heads outputs side-by-side: [B, H, S, DH] -> [B, S, H * DH]
         output = output.transpose(1, 2).reshape(B, S, D)
@@ -149,9 +162,9 @@ class EncoderLayer(nn.Module):
             embed_dim, ffn_expand_factor, act=GeGLU(), dropout=ffn_dropout, bias=bias
         )
 
-    def forward(self, x: Tensor, mask: BoolTensor | None = None) -> Tensor:
+    def forward(self, x: Tensor, block_mask: BlockMask | None = None) -> Tensor:
         xn = self.pre_norm1(x)
-        x = x + self.drop(self.attn(xn, mask))
+        x = x + self.drop(self.attn(xn, block_mask))
         xn = self.pre_norm2(x)
         x = x + self.drop(self.ffn(xn))
         return x
@@ -198,18 +211,21 @@ class RECCT(nn.Module):
         log.info(
             f"Self-attention uses {n_heads} heads of dimension {embed_dim // n_heads}"
         )
-        log.info("Self-attention uses PyTorch's F.scaled_dot_product_attention")
+        log.info("Self-attention uses PyTorch's FlexAttention")
         if (embed_dim // n_heads) % 8 != 0:
             log.warning(
-                "Fast CUDA fused kernels for SDPA require head dim to be a multiple of 8"
+                "Fast CUDA fused attention kernels require head dim to be a multiple of 8"
             )
         log.info(f"FFN expansion factor = {ffn_expand_factor:.1f}")
 
         self.n_iters = n_iters
         self.n_layers = n_layers
 
-        # build attn mask from PCM
+        # build attn mask from PCM (registered as a buffer so Lightning moves it to GPU)
         self.register_buffer("mask", self._build_mask(code))
+        # BlockMask is not a Tensor, so it can't be a buffer; built lazily at first
+        # forward, by which time self.mask is already on the correct device.
+        self._block_mask: BlockMask | None = None
 
         # build the different layers of the rECCT decoder
         self.embed = EmbeddingLayer(code.n + code.m, embed_dim)
@@ -258,6 +274,26 @@ class RECCT(nn.Module):
             mask > 0
         )  # Pytorch SDPA convention: mask=True for elements that DO participate to attention
 
+    @torch.compiler.disable  # keep block_mask construction out of the compiled graph
+    def _get_block_mask(self) -> BlockMask:
+        if self._block_mask is None:
+            mask: Tensor = self.mask  # type: ignore[assignment]
+            S = mask.size(0)
+
+            def mask_mod(b, h, q_idx, kv_idx):
+                return mask[q_idx, kv_idx]
+
+            self._block_mask = create_block_mask(
+                mask_mod,
+                B=None,
+                H=None,
+                Q_LEN=S,
+                KV_LEN=S,
+                device=mask.device,
+                _compile=True,
+            )
+        return self._block_mask
+
     def _init_weights(self, module: nn.Module) -> None:
         if isinstance(module, nn.Linear):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
@@ -268,13 +304,16 @@ class RECCT(nn.Module):
 
     def forward(self, ym: Tensor, s: Tensor) -> Tensor:
 
+        # lazy-build the FlexAttention BlockMask on first call (right device via buffer)
+        block_mask = self._get_block_mask()
+
         # generate the embedding vectors from the input
         x = self.embed(ym, s)
 
         # iterate over the base encoder layers to refine the latent representation of the error pattern
         for layer in self.encoding_layers:
             for _ in range(self.n_iters):
-                x = layer(x, self.mask)
+                x = layer(x, block_mask)
 
         # decode the result to obtain the error pattern
         return self.decode(x)
