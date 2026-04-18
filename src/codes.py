@@ -19,14 +19,14 @@ class LinearCode:
         self.m = self.H.shape[0]
         assert (self.k, self.n) == self.G.shape
         self.rate = self.k * 1.0 / self.n
-        self.dmin: int = matlab_data["dmin"] if "dmin" in matlab_data else 0
+        self.dmin: int | None = matlab_data["dmin"] if "dmin" in matlab_data else None
         self.name = matlab_data["name"] if "name" in matlab_data else "Linear"
         log.info(f"Instantiating a {self} code from file: {mat_file}")
 
     def __repr__(self) -> str:
         return (
             f"{self.name}({self.n},{self.k},{self.dmin})"
-            if self.dmin != 0
+            if self.dmin is not None
             else f"{self.name}({self.n},{self.k})"
         )
 

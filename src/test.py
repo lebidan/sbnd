@@ -74,7 +74,7 @@ def update_error_stats(
         torch.any(syndromes[nz_target_idx] < 0, dim=1).nonzero().squeeze(dim=1)
     )
     bit_err = preds[nz_target_idx[nz_synd_idx]] != targets[nz_target_idx[nz_synd_idx]]
-    # emulate HDD by counting the number of bit errors and declaring a decoding success if 
+    # emulate HDD by counting the number of bit errors and declaring a decoding success if
     # the number of bit errors is less than the error correction capability t of the code
     nb_err = bit_err.sum(dim=1)
     bit_err = bit_err & (nb_err > t).unsqueeze(1)
@@ -233,9 +233,15 @@ def main() -> None:
     output_file = args.output + "/" + pathlib.Path(model_file).stem + suffix + ".csv"
     log.info(f"Results will be saved to file: {output_file}")
 
-    t = (code.dmin - 1) // 2 if args.hdd else 0
     if args.hdd:
+        if code.dmin is None:
+            raise ValueError(
+                "--hdd requires a code with a known dmin (not found in .mat file)"
+            )
+        t = (code.dmin - 1) // 2
         log.info(f"HDD emulation enabled (correction capability t = {t})")
+    else:
+        t = 0
 
     # Evaluate the model - The results are returned in a list of dicts,
     # using one dict of metrics per Eb/N0 point
