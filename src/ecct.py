@@ -170,8 +170,8 @@ class ECCT(nn.Module):
         self.out_fc = nn.Linear(code.n + code.m, output_sz)
 
         if compile:
-            log.info("Compiling model layers for faster training")
-            self.decoder.compile()
+            log.info("Compiling model forward for faster training")
+            self.compile()
 
         # setup mask and other parameters
 

@@ -7,9 +7,9 @@
 # Gaston de Boni Rovella's PhD thesis: https://theses.fr/2024ESAE0065, Chap.3
 # See also: https://github.com/gastondeboni/Syndrome_Based_Neural_Decoding
 #
-# There has been renewed interest recently in recurrent transformers as a 
+# There has been renewed interest recently in recurrent transformers as a
 # parameter-efficient architecture (see papers on looped transformers).
-# 
+#
 # The following is my minimal implementation of a recurrent ECCT, built on a
 # more up-to-date and readable TF architecture than the original ECCT model
 
@@ -231,11 +231,8 @@ class RECCT(nn.Module):
         self.decode = DecoderLayer(embed_dim, code.n + code.m, output_size, bias=bias)
 
         if compile:
-            log.info("Compiling model layers for faster training")
-            self.embed.compile()
-            for layer in self.encoding_layers:
-                layer.compile()
-            self.decode.compile()
+            log.info("Compiling model forward for faster training")
+            self.compile()
 
         # initialize parameters
         self.apply(self._init_weights)
