@@ -14,7 +14,7 @@ Syndrome-Based Neural Decoding
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://github.com/lebidan/sbnd/blob/main/LICENSE)
 [![Version](https://img.shields.io/badge/version-0.1.0-lightgrey)]()
 
-[Overview](#-why-sbnd) | [Features](#-features) | [Installation](#-installation) | [Getting Started](#-getting-started) | [Codes & Decoders](#-supported-codes--decoders) | [Configuration](#-configuration-guide) | [Structure](#-project-structure) | [Contributing](#-contributing) | [Acknowledgments](#acknowledgments)
+[Overview](#-why-sbnd) | [Features](#-features) | [Installation](#-installation) | [Getting Started](#-getting-started) | [Codes & Decoders](#-supported-codes--decoders) | [Configuration](#-configuration-guide) | [Structure](#-project-structure) | [Contributing](#-contributing) | [Acknowledgments](#-acknowledgments)
 
 **`SBND`** is a PyTorch/Lightning framework for training and evaluating syndrome-based neural decoders for linear error-correcting codes.
 
@@ -119,7 +119,7 @@ Any config value can be overridden on the command line:
 sbnd-train exp=ecct-bch-63-45-ml-4m-2dB-aug gpus=2 cpus=16 max_epochs=64 lr=0.001
 ```
 
-See the [Configuration Guide](#configuration-guide) for details on how to create your own experiments.
+See the [Configuration Guide](#-configuration-guide) for details on how to create your own experiments.
 
 Training artifacts (Hydra config, logs, checkpoints) are saved under `./log/train/runs/YYYY-MM-DD_HH-MM-SS/` to make sure each run is unique. 
 
@@ -355,6 +355,7 @@ sbnd/
 │   └── exp/                    # Experiment configs
 ├── data/
 │   └── codes/                  # Code definition .mat files (G, H, n, k)
+├── media/                      # Logo, plots, etc.
 ├── src/                        # Python package (installed as `sbnd`)
 │   ├── codes.py                # LinearCode class
 │   ├── data.py                 # SBNDDataModule: datasets and batch generation
@@ -377,11 +378,11 @@ sbnd/
 
 This project is licensed under the [MIT License](https://github.com/lebidan/sbnd/blob/main/LICENSE).
 
-## 🤝 Contributing
+## 🛠️ Contributing
 
 Contributions are welcome. Please open an [issue](https://github.com/lebidan/sbnd/issues) to report bugs or suggest features, and feel free to submit pull requests.
 
-## Acknowledgments
+## 🤝 Acknowledgments
 
 Much of this code was developed within the framework of the [ANR-21 AI4CODE project](https://ai4code.projects.labsticc.fr/).
 
