@@ -49,6 +49,7 @@ def update_error_stats(
     syndromes: Tensor,
     i_set: Tensor,
     stats: dict[str, float | int],
+    t: int = 0,
 ) -> None:
     total_cw = targets.size(0)
     if preds.size(1) < targets.size(1):
@@ -73,6 +74,10 @@ def update_error_stats(
         torch.any(syndromes[nz_target_idx] < 0, dim=1).nonzero().squeeze(dim=1)
     )
     bit_err = preds[nz_target_idx[nz_synd_idx]] != targets[nz_target_idx[nz_synd_idx]]
+    # emulate HDD by counting the number of bit errors and declaring a decoding success if 
+    # the number of bit errors is less than the error correction capability t of the code
+    nb_err = bit_err.sum(dim=1)
+    bit_err = bit_err & (nb_err > t).unsqueeze(1)
     stats["Bit errors"] += bit_err[:, i_set].sum().item()
     stats["CW errors"] += torch.any(bit_err, dim=1).sum().item()
 
@@ -86,6 +91,7 @@ def test_model(
     n_test_batches: int = 512,
     num_workers: int = 16,
     show_progress: bool = True,
+    t: int = 0,
 ) -> list[dict[str, float]]:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
@@ -121,7 +127,9 @@ def test_model(
                 ym, syndromes, targets = batch
                 logits = model(ym.to(device), syndromes.to(device))
                 preds = bipolar_to_bit(logits)
-                update_error_stats(preds.cpu(), targets, syndromes, i_set, error_stats)
+                update_error_stats(
+                    preds.cpu(), targets, syndromes, i_set, error_stats, t
+                )
         # collect error stats in a list of dicts
         error_stats["WER"] = error_stats["CW errors"] * 1.0 / error_stats["Total CW"]
         error_stats["BER"] = error_stats["Bit errors"] / (
@@ -176,6 +184,12 @@ def main() -> None:
     parser.add_argument(
         "--num_workers", type=int, help="number of workers for dataloading", default=8
     )
+    parser.add_argument(
+        "--hdd",
+        action="store_true",
+        help="emulate hard-decision decoding (perfect correction if errors <= t)",
+        default=False,
+    )
     args = parser.parse_args()
 
     # Load model first (code path is stored in its hparams)
@@ -215,8 +229,13 @@ def main() -> None:
     )
     log.info(f"Dataloading will use {args.num_workers} cpus")
     pathlib.Path(args.output).mkdir(parents=True, exist_ok=True)
-    output_file = args.output + "/" + pathlib.Path(model_file).stem + ".csv"
+    suffix = "-hdd" if args.hdd else ""
+    output_file = args.output + "/" + pathlib.Path(model_file).stem + suffix + ".csv"
     log.info(f"Results will be saved to file: {output_file}")
+
+    t = (code.dmin - 1) // 2 if args.hdd else 0
+    if args.hdd:
+        log.info(f"HDD emulation enabled (correction capability t = {t})")
 
     # Evaluate the model - The results are returned in a list of dicts,
     # using one dict of metrics per Eb/N0 point
@@ -228,6 +247,7 @@ def main() -> None:
         num_workers=args.num_workers,
         test_bs=args.batch_size,
         n_test_batches=args.num_batches,
+        t=t,
     )
 
     # Pretty print results in the terminal
