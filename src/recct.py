@@ -107,7 +107,12 @@ class MultiHeadSelfAttention(nn.Module):
         self.W_qkv = nn.Linear(input_dim, 3 * input_dim, bias=bias)
         self.W_out = nn.Linear(input_dim, input_dim, bias=bias)
 
-    def forward(self, x: Tensor, block_mask: BlockMask | None = None) -> Tensor:
+    def forward(
+        self,
+        x: Tensor,
+        block_mask: BlockMask | None = None,
+        mask: Tensor | None = None,
+    ) -> Tensor:
 
         # batch size (B), sequence length (S), input dim (D), heads (H), head dim (DH)
         B, S, D = x.shape
@@ -119,19 +124,29 @@ class MultiHeadSelfAttention(nn.Module):
         qkv = qkv.transpose(1, 3)  # [B, H, 3, S, DH]
         q, k, v = qkv.unbind(dim=2)  # [B, H, S, DH] each
 
-        # Attention dropout via score_mod: Bernoulli mask on the pre-softmax scores.
-        # Note: FlexAttention has no post-softmax dropout equivalent to SDPA's dropout_p;
-        # the surviving scores are simply renormalized by softmax (no 1/(1-p) rescaling).
-        score_mod = None
-        if self.training and self.attn_dropout > 0:
-            keep = torch.rand(B, H, S, S, device=x.device) >= self.attn_dropout
+        if x.is_cuda and DH >= 16:
+            # Attention dropout via score_mod: Bernoulli mask on the pre-softmax scores.
+            # Note: FlexAttention has no post-softmax dropout equivalent to SDPA's dropout_p;
+            # the surviving scores are simply renormalized by softmax (no 1/(1-p) rescaling).
+            score_mod = None
+            if self.training and self.attn_dropout > 0:
+                keep = torch.rand(B, H, S, S, device=x.device) >= self.attn_dropout
 
-            def score_mod(score, b, h, q_idx, kv_idx):  # type: ignore[misc]
-                return torch.where(keep[b, h, q_idx, kv_idx], score, float("-inf"))
+                def score_mod(score, b, h, q_idx, kv_idx):  # type: ignore[misc]
+                    return torch.where(keep[b, h, q_idx, kv_idx], score, float("-inf"))
 
-        # FlexAttention: [B, H, S, DH]
-        output = _flex_attention(q, k, v, score_mod=score_mod, block_mask=block_mask)
-        assert isinstance(output, Tensor)  # narrow Union return type for mypy
+            # FlexAttention (CUDA only, head_dim >= 16): [B, H, S, DH]
+            output = _flex_attention(
+                q, k, v, score_mod=score_mod, block_mask=block_mask
+            )
+            assert isinstance(output, Tensor)  # narrow Union return type for mypy
+        else:
+            # SDPA fallback: CPU, or head_dim < 16 (FlexAttention/Inductor requires head_dim >= 16).
+            # Uses the raw bool attention mask (True = participates) rather than the BlockMask.
+            p = self.attn_dropout if self.training else 0.0
+            output = F.scaled_dot_product_attention(
+                q, k, v, attn_mask=mask, dropout_p=p
+            )
 
         # Re-assemble heads outputs side-by-side: [B, H, S, DH] -> [B, S, H * DH]
         output = output.transpose(1, 2).reshape(B, S, D)
@@ -162,9 +177,14 @@ class EncoderLayer(nn.Module):
             embed_dim, ffn_expand_factor, act=GeGLU(), dropout=ffn_dropout, bias=bias
         )
 
-    def forward(self, x: Tensor, block_mask: BlockMask | None = None) -> Tensor:
+    def forward(
+        self,
+        x: Tensor,
+        block_mask: BlockMask | None = None,
+        mask: Tensor | None = None,
+    ) -> Tensor:
         xn = self.pre_norm1(x)
-        x = x + self.drop(self.attn(xn, block_mask))
+        x = x + self.drop(self.attn(xn, block_mask, mask))
         xn = self.pre_norm2(x)
         x = x + self.drop(self.ffn(xn))
         return x
@@ -253,10 +273,12 @@ class RECCT(nn.Module):
         # initialize parameters
         self.apply(self._init_weights)
 
-        # for model summary
-        self.example_input_array = torch.zeros(1, code.n), torch.zeros(
-            1, code.m
-        )  # for model summary
+        # no example_input_array here: Lightning's ModelSummary calls forward through
+        # hooks in a code path that prevents torch.compile from tracing into the
+        # flex_attention call; the eager fallback then fails on mask_mod indexing a
+        # closure-captured buffer. Dropping example_input_array disables per-layer
+        # shape info in the summary but keeps param counts.
+        self.example_input_array = None
 
     def _build_mask(self, code: LinearCode):
         mask_size = code.n + code.m
@@ -275,9 +297,13 @@ class RECCT(nn.Module):
         )  # Pytorch SDPA convention: mask=True for elements that DO participate to attention
 
     @torch.compiler.disable  # keep block_mask construction out of the compiled graph
-    def _get_block_mask(self) -> BlockMask:
+    def _get_block_mask(self) -> BlockMask | None:
+        # FlexAttention is CUDA-only; skip block_mask creation on CPU (e.g. during
+        # Lightning's model summary, which traces the forward before .to(device)).
+        mask: Tensor = self.mask  # type: ignore[assignment]
+        if mask.device.type != "cuda":
+            return None
         if self._block_mask is None:
-            mask: Tensor = self.mask  # type: ignore[assignment]
             S = mask.size(0)
 
             def mask_mod(b, h, q_idx, kv_idx):
@@ -306,6 +332,7 @@ class RECCT(nn.Module):
 
         # lazy-build the FlexAttention BlockMask on first call (right device via buffer)
         block_mask = self._get_block_mask()
+        mask: Tensor = self.mask  # type: ignore[assignment]
 
         # generate the embedding vectors from the input
         x = self.embed(ym, s)
@@ -313,10 +340,22 @@ class RECCT(nn.Module):
         # iterate over the base encoder layers to refine the latent representation of the error pattern
         for layer in self.encoding_layers:
             for _ in range(self.n_iters):
-                x = layer(x, block_mask)
+                x = layer(x, block_mask, mask)
 
         # decode the result to obtain the error pattern
         return self.decode(x)
+
+    # BlockMask holds a closure (mask_mod) that cannot be pickled. Lightning pickles
+    # the decoder into the checkpoint via self.hparams.decoder, so exclude the cached
+    # _block_mask from the pickled state (it will be rebuilt lazily on next forward).
+    def __getstate__(self) -> dict:
+        state = self.__dict__.copy()
+        state["_block_mask"] = None
+        return state
+
+    def __setstate__(self, state: dict) -> None:
+        self.__dict__.update(state)
+        self._block_mask = None
 
 
 if __name__ == "__main__":
