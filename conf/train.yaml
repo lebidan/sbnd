@@ -114,11 +114,17 @@ checkpoints_cb:
 wandb_ckpt_cb:
   _target_: sbnd.train.WandbModifyCheckpointName
 
-# List of trainer callbacks to instantiate 
-trainer_cb: 
-  - ${summary_cb} 
+# Periodic evaluation on test set(s) during training (trainer callback)
+periodic_test_cb:
+  _target_: sbnd.train.PeriodicTest
+  every_n_epochs: 50
+
+# List of trainer callbacks to instantiate
+trainer_cb:
+  - ${summary_cb}
   - ${checkpoints_cb}
   - ${wandb_ckpt_cb}
+  - ${periodic_test_cb}
 
 # List of training logger(s) to instantiate
 loggers: 
