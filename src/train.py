@@ -55,6 +55,7 @@ class PeriodicTest(Callback):
         if dm is None or not hasattr(dm, "test_dataloader"):
             return
 
+        dm.setup(stage="test")
         dls = dm.test_dataloader()
         if not isinstance(dls, (list, tuple)):
             dls = [dls]
@@ -62,7 +63,7 @@ class PeriodicTest(Callback):
         ebno_list = getattr(dm, "ebno_dB_test", None)
         log.info(
             f"[epoch {trainer.current_epoch + 1}] Running periodic test evaluation "
-            f"on {len(dls)} dataloader(s)"
+            f"on {len(dls)} test set(s)"
         )
 
         was_training = lm.training
@@ -87,9 +88,9 @@ class PeriodicTest(Callback):
                     if total == 0:
                         continue
                     mean_acc = acc_sum / total
-                    metrics[f"test/loss/{i}"] = loss_sum / total
-                    metrics[f"test/acc/{i}"] = mean_acc
-                    metrics[f"test/err/{i}"] = 1 - mean_acc
+                    metrics[f"periodic_test/loss/{i}"] = loss_sum / total
+                    metrics[f"periodic_test/acc/{i}"] = mean_acc
+                    metrics[f"periodic_test/err/{i}"] = 1 - mean_acc
         finally:
             if was_training:
                 lm.train()
@@ -100,7 +101,7 @@ class PeriodicTest(Callback):
             # format: "Periodic test results — 0.5dB: FER=1.2e-3, 1.0dB: FER=3.4e-4, ..." 
             fer_parts = []
             for i in range(len(dls)):
-                key = f"test/err/{i}"
+                key = f"periodic_test/err/{i}"
                 if key not in metrics:
                     continue
                 fer = metrics[key].item()
