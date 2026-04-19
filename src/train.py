@@ -5,6 +5,7 @@ import torch, lightning as lit
 
 from typing import Any, Iterable, cast
 from omegaconf import OmegaConf, DictConfig
+from torch import Tensor
 from lightning.pytorch.loggers import Logger, WandbLogger
 from lightning.pytorch.callbacks import Callback, ModelCheckpoint
 
@@ -32,6 +33,83 @@ class WandbModifyCheckpointName(Callback):
                 log.info(
                     f"Modified checkpoint filename to include W&B run name: {cb.filename}"
                 )
+
+
+# Periodically evaluate the model on the test dataloader(s) during training to
+# monitor progress. 
+# Runs a lightweight manual eval loop (no reentrant trainer.test() call) every
+# `every_n_epochs` epochs and logs metrics under the `test/` namespace.
+class PeriodicTest(Callback):
+    def __init__(self, every_n_epochs: int = 50) -> None:
+        super().__init__()
+        self.every_n_epochs = every_n_epochs
+
+    def on_train_epoch_end(
+        self, trainer: lit.Trainer, lm: lit.LightningModule
+    ) -> None:
+        if self.every_n_epochs <= 0:
+            return
+        if (trainer.current_epoch + 1) % self.every_n_epochs != 0:
+            return
+        dm = trainer.datamodule  # type: ignore[attr-defined]
+        if dm is None or not hasattr(dm, "test_dataloader"):
+            return
+
+        dm.setup(stage="test")
+        dls = dm.test_dataloader()
+        if not isinstance(dls, (list, tuple)):
+            dls = [dls]
+
+        ebno_list = getattr(dm, "ebno_dB_test", None)
+        log.info(
+            f"[epoch {trainer.current_epoch + 1}] Running periodic test evaluation "
+            f"on {len(dls)} test set(s)"
+        )
+
+        was_training = lm.training
+        lm.eval()
+        device = lm.device
+        metrics: dict[str, Tensor] = {}
+        # make sure to fall back to training mode even if something goes wrong 
+        # during evaluation, to avoid affecting the subsequent training epochs
+        try:
+            with torch.no_grad():
+                for i, dl in enumerate(dls):
+                    loss_sum = torch.zeros((), device=device)
+                    acc_sum = torch.zeros((), device=device)
+                    total = 0
+                    for batch in dl:
+                        batch = tuple(t.to(device) for t in batch)
+                        loss, acc = lm.model_step(batch)  # type: ignore[operator]
+                        bs = batch[0].size(0)
+                        loss_sum = loss_sum + loss * bs
+                        acc_sum = acc_sum + acc * bs
+                        total += bs
+                    if total == 0:
+                        continue
+                    mean_acc = acc_sum / total
+                    metrics[f"periodic_test/loss/{i}"] = loss_sum / total
+                    metrics[f"periodic_test/acc/{i}"] = mean_acc
+                    metrics[f"periodic_test/err/{i}"] = 1 - mean_acc
+        finally:
+            if was_training:
+                lm.train()
+
+        if metrics:
+            lm.log_dict(metrics, on_epoch=True, on_step=False, sync_dist=True)
+            # report test results in the terminal
+            # format: "Periodic test results — 0.5dB: FER=1.2e-3, 1.0dB: FER=3.4e-4, ..." 
+            fer_parts = []
+            for i in range(len(dls)):
+                key = f"periodic_test/err/{i}"
+                if key not in metrics:
+                    continue
+                fer = metrics[key].item()
+                if ebno_list is not None and i < len(ebno_list):
+                    fer_parts.append(f"{ebno_list[i]:.1f}dB: FER={fer:.3e}")
+                else:
+                    fer_parts.append(f"#{i}: FER={fer:.3e}")
+            log.info("Periodic test results — " + ", ".join(fer_parts))
 
 
 def log_config(
