@@ -14,8 +14,6 @@ decoder:
   embed_dim: 128
   n_heads: 8
   attn_dropout: 0.1
-  res_dropout: 0.01
-  use_fast_attn: true
   compile: true
 
 # -----------------------------------------------------------------------------
@@ -39,7 +37,7 @@ data:
 # Model-specific training setup
 # -----------------------------------------------------------------------------
 
-max_epochs: 512
+max_epochs: 128
 lr: 0.001
 
 optimizer:

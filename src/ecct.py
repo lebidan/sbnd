@@ -7,10 +7,8 @@
 # - mask modified to prevent tokens to attend to themselves
 # - disable bias in FFN layers
 # - no more intermediate layernorm in the middle
-# - syndromes in binary rather than bipolar form
 
-import copy, math
-import torch, torch.nn as nn, torch.nn.functional as F
+import torch, torch.nn as nn, torch.nn.functional as F, copy
 from typing import Callable
 from torch import Tensor
 from torch.nn import LayerNorm
@@ -67,7 +65,7 @@ class EncoderLayer(nn.Module):
 
 class MultiHeadedAttention(nn.Module):
     def __init__(
-        self, h: int, d_model: int, dropout: float = 0.1, use_fast_attn: bool = False
+        self, h: int, d_model: int, dropout: float = 0.1
     ) -> None:
         super(MultiHeadedAttention, self).__init__()
         assert d_model % h == 0
@@ -75,7 +73,6 @@ class MultiHeadedAttention(nn.Module):
         self.h = h
         self.linears = clones(nn.Linear(d_model, d_model), 4)
         self.dropout = nn.Dropout(dropout)
-        self.use_fast_attn = use_fast_attn
 
     def forward(
         self, query: Tensor, key: Tensor, value: Tensor, mask: Tensor | None = None
@@ -87,39 +84,22 @@ class MultiHeadedAttention(nn.Module):
             for lin, x in zip(self.linears, (query, key, value))
         ]
 
-        if self.use_fast_attn:
-            # MODIF RLB: Use pytorch fast SDPA implementation
-            # According to pytorch's documentation, dropout needs to be manually disabled in eval mode
-            p = self.dropout.p if self.training else 0.0
-            x = F.scaled_dot_product_attention(
-                query, key, value, attn_mask=mask, dropout_p=p
-            )
-        else:
-            x = self.attention(
-                query, key, value, mask
-            )  # defaults back to original implementation
+        # modif: use PyTorch's built-in scaled_dot_product_attention
+        # Pytorch's doc says dropout needs to be manually disabled in eval mode
+        p = self.dropout.p if self.training else 0.0
+        x = F.scaled_dot_product_attention(
+            query, key, value, attn_mask=mask, dropout_p=p
+        )
 
         x = x.transpose(1, 2).contiguous().view(nbatches, -1, self.h * self.d_k)
         return self.linears[-1](x)
-
-    # original implementation of SDPA operation, from S. Rush blog post "the annotated transformer"
-    def attention(
-        self, query: Tensor, key: Tensor, value: Tensor, mask: Tensor | None = None
-    ) -> Tensor:
-        d_k = query.size(-1)
-        scores = torch.matmul(query, key.transpose(-2, -1)) / math.sqrt(d_k)
-        if mask is not None:
-            scores = scores.masked_fill(mask, -torch.inf)
-        p_attn = self.dropout(F.softmax(scores, dim=-1))
-        return torch.matmul(p_attn, value)
 
 
 class PositionwiseFeedForward(nn.Module):
     def __init__(self, d_model: int, d_ff: int, dropout: float = 0) -> None:
         super(PositionwiseFeedForward, self).__init__()
-        self.w_1 = nn.Linear(
-            d_model, d_ff, bias=False
-        )  # modif RLB: disable bias for both FFN layers
+        # modif: disable bias for both FFN layers
+        self.w_1 = nn.Linear(d_model, d_ff, bias=False)
         self.w_2 = nn.Linear(d_ff, d_model, bias=False)
         self.dropout = nn.Dropout(dropout)
 
@@ -134,11 +114,10 @@ class ECCT(nn.Module):
         n_layers: int = 6,
         embed_dim: int = 32,
         n_heads: int = 8,
-        res_dropout: float = 0.1,
+        res_dropout: float = 0.0,
         attn_dropout: float = 0.1,
         ffn_dropout: float = 0,
         up_proj: int = 4,
-        use_fast_attn: bool = True,
         compile: bool = False,
         output: str = "codeword",
     ) -> None:
@@ -152,15 +131,16 @@ class ECCT(nn.Module):
         log.info(
             f"Self-attention uses {n_heads} heads of dimension {embed_dim // n_heads}"
         )
-        if use_fast_attn:
-            log.info("Self-attention uses PyTorch's F.scaled_dot_product_attention")
-        else:
-            log.info("Self-attention uses eager SDPA implementation")
+        log.info("Self-attention uses PyTorch's F.scaled_dot_product_attention")
+        if (embed_dim // n_heads) % 8 != 0:
+            log.warning(
+                "Fast CUDA fused kernels for SDPA require head dim to be a multiple of 8"
+            )
         log.info(f"FFN expansion factor = {up_proj}")
 
         # build model layers
         c = copy.deepcopy
-        attn = MultiHeadedAttention(h, d_model, attn_dropout, use_fast_attn)
+        attn = MultiHeadedAttention(h, d_model, attn_dropout)
         ff = PositionwiseFeedForward(d_model, d_model * up_proj, ffn_dropout)
         self.src_embed = torch.nn.Parameter(torch.empty((code.n + code.m, d_model)))
         self.decoder = Encoder(
@@ -175,7 +155,7 @@ class ECCT(nn.Module):
 
         # setup mask and other parameters
 
-        self.get_mask(code, use_fast_attn)
+        self.register_mask(code)
 
         for p in self.parameters():
             if p.dim() > 1:
@@ -186,17 +166,17 @@ class ECCT(nn.Module):
         )  # for model summary
 
     def forward(self, ym: Tensor, s: Tensor) -> Tensor:
-        x = torch.cat([ym, (1 - s) / 2], dim=1)  # (|y|, s) with s in binary format
+        x = torch.cat([ym, s], dim=1) 
         emb = x.unsqueeze(-1)
         emb = self.src_embed.unsqueeze(0) * emb
         emb = self.decoder(emb, self.src_mask)
         return self.out_fc(self.oned_final_embed(emb).squeeze(-1))
 
-    def get_mask(self, code: LinearCode, invert: bool = False) -> None:
+    def register_mask(self, code: LinearCode) -> None:
 
-        def build_mask(code: LinearCode, invert: bool = False) -> Tensor:
+        def build_mask(code: LinearCode) -> Tensor:
             mask_size = code.n + code.m
-            # MODIF RLB: modify mask to prevent tokens from attending to themselves
+            # modif: change mask init to prevent tokens from attending to themselves
             mask = torch.zeros(
                 mask_size, mask_size
             )  # torch.eye(mask_size, mask_size) in the original implementation
@@ -209,12 +189,26 @@ class ECCT(nn.Module):
                             mask[kk, jj] += 1
                             mask[code.n + ii, jj] += 1
                             mask[jj, code.n + ii] += 1
-            # mask=True for elements that do NOT participate to attention
-            # we need to invert the mask for Pytorch SDPA (opposite convention)
-            src_mask = ~(mask > 0)
-            return ~src_mask if invert else src_mask
+            # Pytorch SDPA requires mask=True for elements that DO participate to attention
+            return (mask > 0)
 
-        src_mask = build_mask(code, invert=invert)
+        src_mask = build_mask(code)
+
+        # make sure last dim of mask has stride=1, as this is what fast attention and
+        # memory-efficient attention expect for *all* of their input tensors, mask included
+        # see: https://github.com/pytorch/pytorch/issues/116333
+        
+        def _enforce_stride1_in_last_dim(x: Tensor) -> Tensor:
+            # solution from https://github.com/pytorch/pytorch/issues/127523
+            if x.stride(-1) != 1:
+                x = torch.empty_like(x, memory_format=torch.contiguous_format).copy_(x)
+            return x
+        
+        src_mask = _enforce_stride1_in_last_dim(src_mask)
+        assert (
+            src_mask.stride(-1) == 1
+        ), f"The last dim of src_mask must have stride 1 (got {src_mask.stride(-1)})"
+        
         self.register_buffer("src_mask", src_mask)
 
 

@@ -9,7 +9,7 @@ code:
   mat_file: ${codes_dir}/bch.63.45.mat
 
 decoder:
-  _target_: sbnd.ecct.ECCT
+  _target_: sbnd.crossmpt.CrossMPT
   n_layers: 6
   embed_dim: 128
   n_heads: 8
@@ -24,17 +24,14 @@ decoder:
 data:  
   _target_: sbnd.data.SBNDDataModule
   ebno_dB_train: 2.0
-  on_demand: false
-  n_train_samples: 4194304    # size of training set
+  on_demand: true
+  n_train_samples: 1048576  # number of training samples per epoch
   train_bs: 4096
   n_val_samples: 524288
   val_bs: 4096
   ebno_dB_test: [2.0, 3.0, 4.0]
   n_test_samples: 2097152
   test_bs: 4096
-  transform:
-    _partial_: true
-    _target_: sbnd.transforms.BCHPerms
 
 # -----------------------------------------------------------------------------
 # Model-specific training setup

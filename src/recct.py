@@ -168,7 +168,7 @@ class DecoderLayer(nn.Module):
 
     def forward(self, x: Tensor) -> Tensor:
         # normalization layer, followed by embedding dimension reduction (d->1)
-        # and final down projection from context size 2n-k to output size n
+        # and final down projection from context size m+n to output size n
         x = self.post_norm(x)
         x = self.squeeze_emb(x).squeeze(-1)
         return self.to_logits(x)
@@ -184,7 +184,7 @@ class RECCT(nn.Module):
         n_iters: int = 6,
         attn_dropout: float = 0.1,
         ffn_expand_factor: float = 4,
-        ffn_dropout: float = 0,
+        ffn_dropout: float = 0.0,
         res_dropout: float = 0.1,
         bias: bool = False,
         compile: bool = False,
@@ -254,9 +254,8 @@ class RECCT(nn.Module):
                         mask[kk, jj] += 1
                         mask[code.n + ii, jj] += 1
                         mask[jj, code.n + ii] += 1
-        return (
-            mask > 0
-        )  # Pytorch SDPA convention: mask=True for elements that DO participate to attention
+        # Pytorch SDPA requires mask=True for elements that DO participate to attention
+        return (mask > 0)  
 
     def _init_weights(self, module: nn.Module) -> None:
         if isinstance(module, nn.Linear):

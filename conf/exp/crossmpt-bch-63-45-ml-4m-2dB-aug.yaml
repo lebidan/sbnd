@@ -14,7 +14,6 @@ decoder:
   embed_dim: 128
   n_heads: 8
   attn_dropout: 0.1
-  use_fast_attn: true
   compile: true
 
 # -----------------------------------------------------------------------------
