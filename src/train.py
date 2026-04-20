@@ -96,9 +96,8 @@ class PeriodicTest(Callback):
                 lm.train()
 
         if metrics:
-            lm.log_dict(metrics, on_epoch=True, on_step=False, sync_dist=True)
-            # report test results in the terminal
-            # format: "Periodic test results — 0.5dB: FER=1.2e-3, 1.0dB: FER=3.4e-4, ..." 
+            # report test results in the terminal, as follows:
+            # "Periodic test results — 0.5dB: FER=1.2e-3, 1.0dB: FER=3.4e-4, ..." 
             fer_parts = []
             for i in range(len(dls)):
                 key = f"periodic_test/err/{i}"

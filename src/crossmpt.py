@@ -181,7 +181,7 @@ class CrossMPT(nn.Module):
     def register_masks(self, code: LinearCode) -> None:
 
         # Pytorch SDPA requires mask=True for elements that DO participate to attention
-        src_mask_CN = ~ (code.H > 0)
+        src_mask_CN = code.H > 0
         src_mask_VN = src_mask_CN.T
 
         # make sure last dim of each mask has stride=1, as this is what fast attention and
