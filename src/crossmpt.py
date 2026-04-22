@@ -34,7 +34,7 @@ class Encoder(nn.Module):
         for layer in self.layers:
             x1 = layer(x1, x2, mask_VN)
             x2 = layer(x2, x1, mask_CN)
-        # modif: concatenate both outputs as they will be processed 
+        # modif: concatenate both outputs as they will be processed
         # together by the final output layer
         x = torch.cat([x1, x2], dim=1)
         return self.norm(x)
@@ -70,9 +70,7 @@ class EncoderLayer(nn.Module):
 
 
 class MultiHeadedAttention(nn.Module):
-    def __init__(
-        self, h: int, d_model: int, dropout: float = 0.1
-    ) -> None:
+    def __init__(self, h: int, d_model: int, dropout: float = 0.1) -> None:
         super(MultiHeadedAttention, self).__init__()
         assert d_model % h == 0
         self.d_k = d_model // h

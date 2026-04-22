@@ -12,7 +12,7 @@ decoder:
   _target_: sbnd.ecct.ECCT
   n_layers: 6
   embed_dim: 96
-  n_heads: 8
+  n_heads: 6
   attn_dropout: 0.4
   compile: true
 

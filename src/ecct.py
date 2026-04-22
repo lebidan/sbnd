@@ -64,9 +64,7 @@ class EncoderLayer(nn.Module):
 
 
 class MultiHeadedAttention(nn.Module):
-    def __init__(
-        self, h: int, d_model: int, dropout: float = 0.1
-    ) -> None:
+    def __init__(self, h: int, d_model: int, dropout: float = 0.1) -> None:
         super(MultiHeadedAttention, self).__init__()
         assert d_model % h == 0
         self.d_k = d_model // h
@@ -166,7 +164,7 @@ class ECCT(nn.Module):
         )  # for model summary
 
     def forward(self, ym: Tensor, s: Tensor) -> Tensor:
-        x = torch.cat([ym, s], dim=1) 
+        x = torch.cat([ym, s], dim=1)
         emb = x.unsqueeze(-1)
         emb = self.src_embed.unsqueeze(0) * emb
         emb = self.decoder(emb, self.src_mask)
@@ -190,25 +188,25 @@ class ECCT(nn.Module):
                             mask[code.n + ii, jj] += 1
                             mask[jj, code.n + ii] += 1
             # Pytorch SDPA requires mask=True for elements that DO participate to attention
-            return (mask > 0)
+            return mask > 0
 
         src_mask = build_mask(code)
 
         # make sure last dim of mask has stride=1, as this is what fast attention and
         # memory-efficient attention expect for *all* of their input tensors, mask included
         # see: https://github.com/pytorch/pytorch/issues/116333
-        
+
         def _enforce_stride1_in_last_dim(x: Tensor) -> Tensor:
             # solution from https://github.com/pytorch/pytorch/issues/127523
             if x.stride(-1) != 1:
                 x = torch.empty_like(x, memory_format=torch.contiguous_format).copy_(x)
             return x
-        
+
         src_mask = _enforce_stride1_in_last_dim(src_mask)
         assert (
             src_mask.stride(-1) == 1
         ), f"The last dim of src_mask must have stride 1 (got {src_mask.stride(-1)})"
-        
+
         self.register_buffer("src_mask", src_mask)
 
 

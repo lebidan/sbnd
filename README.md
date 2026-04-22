@@ -292,8 +292,6 @@ decoder:
   embed_dim: 128
   n_heads: 8
   attn_dropout: 0.1
-  res_dropout: 0.01
-  use_fast_attn: true
   compile: true
 ```
 
@@ -403,7 +401,7 @@ If you find this code helpful in your project or research, please consider citin
 
 ```bibtex
 @misc{lebidan2026sbnd,
-      title={SBND: Syndrome-based neural decoding for linear error-correcting codes}, 
+      title={SBND: Syndrome-based neural decoding of linear error-correcting codes}, 
       author={Raphaël Le Bidan},
       year={2026},
       url={https://github.com/lebidan/sbnd}, 

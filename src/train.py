@@ -36,7 +36,7 @@ class WandbModifyCheckpointName(Callback):
 
 
 # Periodically evaluate the model on the test dataloader(s) during training to
-# monitor progress. 
+# monitor progress.
 # Runs a lightweight manual eval loop (no reentrant trainer.test() call) every
 # `every_n_epochs` epochs and logs metrics under the `test/` namespace.
 class PeriodicTest(Callback):
@@ -44,9 +44,7 @@ class PeriodicTest(Callback):
         super().__init__()
         self.every_n_epochs = every_n_epochs
 
-    def on_train_epoch_end(
-        self, trainer: lit.Trainer, lm: lit.LightningModule
-    ) -> None:
+    def on_train_epoch_end(self, trainer: lit.Trainer, lm: lit.LightningModule) -> None:
         if self.every_n_epochs <= 0:
             return
         if (trainer.current_epoch + 1) % self.every_n_epochs != 0:
@@ -70,7 +68,7 @@ class PeriodicTest(Callback):
         lm.eval()
         device = lm.device
         metrics: dict[str, Tensor] = {}
-        # make sure to fall back to training mode even if something goes wrong 
+        # make sure to fall back to training mode even if something goes wrong
         # during evaluation, to avoid affecting the subsequent training epochs
         try:
             with torch.no_grad():
@@ -97,7 +95,7 @@ class PeriodicTest(Callback):
 
         if metrics:
             # report test results in the terminal, as follows:
-            # "Periodic test results — 0.5dB: FER=1.2e-3, 1.0dB: FER=3.4e-4, ..." 
+            # "Periodic test results — 0.5dB: FER=1.2e-3, 1.0dB: FER=3.4e-4, ..."
             fer_parts = []
             for i in range(len(dls)):
                 key = f"periodic_test/err/{i}"
@@ -105,10 +103,13 @@ class PeriodicTest(Callback):
                     continue
                 fer = metrics[key].item()
                 if ebno_list is not None and i < len(ebno_list):
-                    fer_parts.append(f"{ebno_list[i]:.1f}dB: FER={fer:.3e}")
+                    fer_parts.append(f"{ebno_list[i]:.1f}dB: FER={fer:.3E}")
                 else:
-                    fer_parts.append(f"#{i}: FER={fer:.3e}")
-            log.info("Periodic test results — " + ", ".join(fer_parts))
+                    fer_parts.append(f"#{i}: FER={fer:.3E}")
+            log.info(
+                f"[epoch {trainer.current_epoch + 1}] Test results — "
+                + ", ".join(fer_parts)
+            )
 
 
 def log_config(

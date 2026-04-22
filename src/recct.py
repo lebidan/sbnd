@@ -255,7 +255,7 @@ class RECCT(nn.Module):
                         mask[code.n + ii, jj] += 1
                         mask[jj, code.n + ii] += 1
         # Pytorch SDPA requires mask=True for elements that DO participate to attention
-        return (mask > 0)  
+        return mask > 0
 
     def _init_weights(self, module: nn.Module) -> None:
         if isinstance(module, nn.Linear):
