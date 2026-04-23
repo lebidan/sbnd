@@ -31,19 +31,24 @@ def load_matlab_data(mat_file: str) -> tuple[Tensor, Tensor]:
 
 
 def prepare_data(
-    code: LinearCode, y: Tensor, e: Tensor
+    code: LinearCode, y: Tensor, e: Tensor, error_space: str = "codeword"
 ) -> tuple[Tensor, Tensor, Tensor]:
     """
     Prepare a batch of training samples for the SBND decoder: create the input pair
     x =(|y|,s) from a received word y and associated binary error pattern e.
-    Return the triplet (|y|, s, e), with s in bipolar format (0 -> +1, 1 -> -1)
-    Output shape: (bs, n), (bs, m), (bs, n) for an (n,k) code with m parity-check eqs
+    Return the triplet (|y|, s, e), with s in bipolar format (0 -> +1, 1 -> -1).
+    If `error_space` is "message", the returned error pattern is mapped to message
+    space as e_msg = (e @ Ginv) mod 2 (shape (bs, k)); otherwise it is left as-is
+    in codeword space (shape (bs, n)).
+    Output shape: (bs, n), (bs, m), (bs, n or k) for an (n,k) code with m parity-check eqs
     """
     ym = torch.abs(y)
     ym = ym / torch.max(ym, dim=1)[0].unsqueeze(
         1
     )  # normalize magnitude to [0,1] within each rx word
     s = code.syndrome(e)
+    if error_space == "message":
+        e = (e @ code.Ginv).bitwise_and(1)
     return ym, (1 - 2 * s).float(), e
 
 
@@ -111,19 +116,21 @@ class OnDemandDataset(Dataset):
         n_batches: int,
         bs: int,
         train: bool = False,
+        error_space: str = "codeword",
     ) -> None:
         self.code = code
         self.ebno_dB = ebno_dB
         self.n_batches, self.bs = n_batches, bs
         self.train = train
+        self.error_space = error_space
 
     def __getitem__(self, idx: int) -> tuple[Tensor, Tensor, Tensor]:
         if self.train:
             y, e = generate_random_training_batch(self.code, self.ebno_dB, self.bs)
-            return prepare_data(self.code, y, e)
+            return prepare_data(self.code, y, e, self.error_space)
         else:
             y, e = generate_random_test_batch(self.code, self.ebno_dB, self.bs)
-            return prepare_data(self.code, y, e)
+            return prepare_data(self.code, y, e, self.error_space)
 
     def __len__(self) -> int:
         return self.n_batches
@@ -141,29 +148,37 @@ class SBNDDataset(Dataset):
     """
 
     def __init__(
-        self, code: LinearCode, y: Tensor, e: Tensor, transform: Callable | None = None
+        self,
+        code: LinearCode,
+        y: Tensor,
+        e: Tensor,
+        transform: Callable | None = None,
+        error_space: str = "codeword",
     ) -> None:
         assert y.shape[0] == e.shape[0], "y and e must have same number of samples"
         self.code = code
         self.transform = transform
+        self.error_space = error_space
         self.y, self.e = y, e
 
     def __getitem__(self, index: int) -> tuple[Tensor, Tensor, Tensor]:
         if self.transform is not None:
-            return prepare_data(
-                self.code, *self.transform(self.y[index], self.e[index])
-            )
+            y, e = self.transform(self.y[index], self.e[index])
+            return prepare_data(self.code, y, e, self.error_space)
         else:
-            return prepare_data(self.code, self.y[index], self.e[index])
+            return prepare_data(
+                self.code, self.y[index], self.e[index], self.error_space
+            )
 
     def __getitems__(self, indices: list[int]) -> list[tuple[Tensor, Tensor, Tensor]]:
         if self.transform is not None:
-            y, s, e = prepare_data(
-                self.code, *self.transform(self.y[indices], self.e[indices])
-            )
+            y_t, e_t = self.transform(self.y[indices], self.e[indices])
+            y, s, e = prepare_data(self.code, y_t, e_t, self.error_space)
             return [(y[i], s[i], e[i]) for i in range(y.size(0))]
         else:
-            ym, s, e = prepare_data(self.code, self.y[indices], self.e[indices])
+            ym, s, e = prepare_data(
+                self.code, self.y[indices], self.e[indices], self.error_space
+            )
             return [(ym[i], s[i], e[i]) for i in range(ym.size(0))]
 
     def __len__(self) -> int:
@@ -227,6 +242,7 @@ class SBNDDataModule(LightningDataModule):
         test_bs: int = 1024,
         on_demand: bool = False,
         transform: Callable | None = None,
+        error_space: str = "codeword",
         extra_args: dict | None = None,
     ) -> None:
         super().__init__()
@@ -242,6 +258,7 @@ class SBNDDataModule(LightningDataModule):
         self.n_test_samples, self.test_bs = n_test_samples, test_bs
         self.on_demand = on_demand
         self.transform = transform(code) if transform is not None else None
+        self.error_space = error_space
         self.extra_args = extra_args if extra_args is not None else {}
         self.save_hyperparameters(
             logger=False
@@ -266,7 +283,10 @@ class SBNDDataModule(LightningDataModule):
         transform = (
             self.transform if train else None
         )  # apply transforms to training data only
-        return SBNDDataset(self.code, y, e, transform), n_samples
+        return (
+            SBNDDataset(self.code, y, e, transform, self.error_space),
+            n_samples,
+        )
 
     def _random_ds(
         self, ebno_dB: float, n_samples: int, train: bool = False
@@ -278,7 +298,7 @@ class SBNDDataModule(LightningDataModule):
         else:
             y, e = generate_random_test_batch(self.code, ebno_dB, n_samples)
             transform = None
-        return SBNDDataset(self.code, y, e, transform)
+        return SBNDDataset(self.code, y, e, transform, self.error_space)
 
     def setup(self, stage: str | None = None) -> None:
 
@@ -298,6 +318,7 @@ class SBNDDataModule(LightningDataModule):
                     n_train_batches,
                     self.train_bs,
                     train=True,
+                    error_space=self.error_space,
                 )
                 log.info(
                     f"Created an on-demand training set of {self.n_train_samples} true error patterns at Eb/N0={self.ebno_dB_train} dB"
@@ -312,6 +333,7 @@ class SBNDDataModule(LightningDataModule):
                     n_val_batches,
                     self.val_bs,
                     train=True,
+                    error_space=self.error_space,
                 )
                 log.info(
                     f"Created an on-demand validation set of {self.n_val_samples} true error patterns at Eb/N0={self.ebno_dB_train} dB"
@@ -388,7 +410,12 @@ class SBNDDataModule(LightningDataModule):
             for ebno_dB in self.ebno_dB_test:  # type: ignore[union-attr]
                 self.test_ds.append(
                     OnDemandDataset(
-                        self.code, ebno_dB, n_test_batches, self.test_bs, train=False
+                        self.code,
+                        ebno_dB,
+                        n_test_batches,
+                        self.test_bs,
+                        train=False,
+                        error_space=self.error_space,
                     )
                 )
                 log.info(

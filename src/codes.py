@@ -21,7 +21,30 @@ class LinearCode:
         self.rate = self.k * 1.0 / self.n
         self.dmin: int | None = matlab_data["dmin"] if "dmin" in matlab_data else None
         self.name = matlab_data["name"] if "name" in matlab_data else "Linear"
+        self.Ginv = self._load_or_build_Ginv(matlab_data)
         log.info(f"Instantiating a {self} code from file: {mat_file}")
+
+    def _load_or_build_Ginv(self, matlab_data: dict) -> torch.Tensor:
+        if "Ginv" in matlab_data:
+            Ginv = torch.tensor(matlab_data["Ginv"], dtype=torch.int8)
+            assert Ginv.shape == (self.n, self.k)
+        else:
+            Ginv = torch.zeros((self.n, self.k), dtype=torch.int8)
+            eye = torch.eye(self.k, dtype=torch.int8)
+            if torch.equal(self.G[:, : self.k], eye):
+                Ginv[: self.k, :] = eye
+            elif torch.equal(self.G[:, -self.k :], eye):
+                Ginv[-self.k :, :] = eye
+            else:
+                raise ValueError(
+                    "can't find the identity matrix at the beginning or end "
+                    "of the generator matrix G"
+                )
+        if not torch.equal(
+            (self.G @ Ginv).bitwise_and(1), torch.eye(self.k, dtype=torch.int8)
+        ):
+            raise ValueError("can't find or build a valid reverse-encoding matrix Ginv")
+        return Ginv
 
     def __repr__(self) -> str:
         return (

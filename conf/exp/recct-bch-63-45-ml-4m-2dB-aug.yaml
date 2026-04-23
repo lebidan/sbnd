@@ -17,6 +17,7 @@ decoder:
   attn_dropout: 0.1
   res_dropout: 0.1
   compile: true
+  error_space: ${error_space}
 
 # -----------------------------------------------------------------------------
 # Datasets for training, validation and testing
@@ -37,6 +38,7 @@ data:
   transform:
     _partial_: true
     _target_: sbnd.transforms.BCHPerms
+  error_space: ${error_space}
 
 # -----------------------------------------------------------------------------
 # Model-specific training setup

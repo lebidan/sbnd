@@ -117,12 +117,13 @@ class ECCT(nn.Module):
         ffn_dropout: float = 0,
         up_proj: int = 4,
         compile: bool = False,
-        output: str = "codeword",
+        error_space: str = "codeword",
     ) -> None:
         super().__init__()
 
+        self.error_space = error_space
         N_dec, d_model, h = n_layers, embed_dim, n_heads
-        output_sz = code.k if output == "message" else code.n
+        output_sz = code.k if error_space == "message" else code.n
 
         log.info(f"Building a {n_layers}-layer ECCT decoder")
         log.info(f"Embedding dimension = {embed_dim}")

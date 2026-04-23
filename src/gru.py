@@ -19,12 +19,13 @@ class StackedGRU(nn.Module):
         bias: bool = True,
         dropout: float = 0.0,
         zero_padding: bool = False,
-        output: str = "codeword",
+        error_space: str = "codeword",
     ) -> None:
         super().__init__()
 
+        self.error_space = error_space
         input_sz = code.n + code.m
-        output_sz = code.k if output == "message" else code.n
+        output_sz = code.k if error_space == "message" else code.n
         self.hidden_sz, self.output_sz, self.n_steps = hidden_sz, output_sz, n_steps
         self.zero_padding = zero_padding
 

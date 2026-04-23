@@ -188,7 +188,7 @@ class RECCT(nn.Module):
         res_dropout: float = 0.1,
         bias: bool = False,
         compile: bool = False,
-        output: str = "codeword",
+        error_space: str = "codeword",
     ) -> None:
         super().__init__()
 
@@ -205,6 +205,7 @@ class RECCT(nn.Module):
             )
         log.info(f"FFN expansion factor = {ffn_expand_factor:.1f}")
 
+        self.error_space = error_space
         self.n_iters = n_iters
         self.n_layers = n_layers
 
@@ -227,7 +228,7 @@ class RECCT(nn.Module):
                 for _ in range(n_layers)
             ]
         )
-        output_size = code.k if output == "message" else code.n
+        output_size = code.k if error_space == "message" else code.n
         self.decode = DecoderLayer(embed_dim, code.n + code.m, output_size, bias=bias)
 
         if compile:

@@ -44,42 +44,55 @@ def write_csv(rows: list[dict[str, float]], path: str) -> None:
 
 
 def update_error_stats(
+    code: LinearCode,
+    error_space: str,
     preds: Tensor,
     targets: Tensor,
     syndromes: Tensor,
-    i_set: Tensor,
     stats: dict[str, float | int],
     t: int = 0,
 ) -> None:
+    """
+    Accumulate codeword (frame) and bit error counts over a test batch.
+
+    BER is always reported on the k message bits. CW errors are reported on the
+    full n-bit codeword when `error_space == "codeword"` (true FER), and on the
+    k message bits otherwise (we don't have access to codeword-level errors when
+    working in message mode).
+    """
     total_cw = targets.size(0)
-    if preds.size(1) < targets.size(1):
-        assert preds.size(1) == len(i_set)
-        targets = targets[
-            :, i_set
-        ]  # iSBND only estimate the error pattern on the message bits
     stats["Total CW"] += total_cw
+    # bit-level diff in the space where the model was trained (shape (bs, n) or (bs, k))
+    # and in the message space (always (bs, k)) for BER counting
+    diff_fer = (preds != targets).to(torch.int8)
+    if error_space == "codeword":
+        diff_ber = (diff_fer @ code.Ginv).bitwise_and(1)
+    else:
+        diff_ber = diff_fer
     # identify all non-zero target error patterns (the all-zero ones don't even enter the decoder)
     nz_target_idx = torch.any(targets, dim=1).nonzero().squeeze(dim=1)
     # among them, those with zero syndromes (+1 syndromes in bipolar form) are necessarily decoding errors
     zero_synd_idx = (
         torch.all(syndromes[nz_target_idx] > 0, dim=1).nonzero().squeeze(dim=1)
     )
-    bit_err = (
-        preds[nz_target_idx[zero_synd_idx]] != targets[nz_target_idx[zero_synd_idx]]
-    )
-    stats["Bit errors"] += bit_err[:, i_set].sum().item()
-    stats["CW errors"] += torch.any(bit_err, dim=1).sum().item()
+    zs = nz_target_idx[zero_synd_idx]
+    stats["Bit errors"] += diff_ber[zs].sum().item()
+    stats["CW errors"] += torch.any(diff_fer[zs], dim=1).sum().item()
     # analyze the predictions for the non-zero error patterns with a non-zero syndrome
     nz_synd_idx = (
         torch.any(syndromes[nz_target_idx] < 0, dim=1).nonzero().squeeze(dim=1)
     )
-    bit_err = preds[nz_target_idx[nz_synd_idx]] != targets[nz_target_idx[nz_synd_idx]]
+    ns = nz_target_idx[nz_synd_idx]
+    fer_err = diff_fer[ns]
+    ber_err = diff_ber[ns]
     # emulate HDD by counting the number of bit errors and declaring a decoding success if
     # the number of bit errors is less than the error correction capability t of the code
-    nb_err = bit_err.sum(dim=1)
-    bit_err = bit_err & (nb_err > t).unsqueeze(1)
-    stats["Bit errors"] += bit_err[:, i_set].sum().item()
-    stats["CW errors"] += torch.any(bit_err, dim=1).sum().item()
+    if t > 0:
+        hdd_miss = (fer_err.sum(dim=1) > t).unsqueeze(1)
+        fer_err = fer_err & hdd_miss
+        ber_err = ber_err & hdd_miss
+    stats["Bit errors"] += ber_err.sum().item()
+    stats["CW errors"] += torch.any(fer_err, dim=1).sum().item()
 
 
 def test_model(
@@ -99,6 +112,7 @@ def test_model(
         torch.set_float32_matmul_precision("high")
     model = model.to(device)
     model.eval()
+    error_space = getattr(model.decoder, "error_space", "codeword")
     # Load existing rows if the output file already exists, otherwise start fresh
     rows: list[dict[str, float]] = []
     if pathlib.Path(output_file).exists():
@@ -107,7 +121,6 @@ def test_model(
             f"Appending to existing file: {output_file} ({len(rows)} rows already present)"
         )
     # Setup and run MC simulation
-    i_set = torch.arange(0, code.k)
     for ebno_dB in ebno_dB_range:
         print(f"Simulating Eb/N0 = {ebno_dB} dB")
         error_stats: dict[str, float] = {
@@ -119,7 +132,12 @@ def test_model(
             "Total CW": 0.0,
         }
         ds = OnDemandDataset(
-            code, ebno_dB=ebno_dB, n_batches=n_test_batches, bs=test_bs, train=False
+            code,
+            ebno_dB=ebno_dB,
+            n_batches=n_test_batches,
+            bs=test_bs,
+            train=False,
+            error_space=error_space,
         )
         dl = DataLoader(ds, batch_size=None, num_workers=num_workers)
         with torch.no_grad():
@@ -128,12 +146,12 @@ def test_model(
                 logits = model(ym.to(device), syndromes.to(device))
                 preds = bipolar_to_bit(logits)
                 update_error_stats(
-                    preds.cpu(), targets, syndromes, i_set, error_stats, t
+                    code, error_space, preds.cpu(), targets, syndromes, error_stats, t
                 )
         # collect error stats in a list of dicts
         error_stats["WER"] = error_stats["CW errors"] * 1.0 / error_stats["Total CW"]
         error_stats["BER"] = error_stats["Bit errors"] / (
-            error_stats["Total CW"] * len(i_set)
+            error_stats["Total CW"] * code.k
         )
         # append new SNR point, then deduplicate by Eb/N0 keeping the latest value
         rows.append(error_stats)
@@ -200,6 +218,8 @@ def main() -> None:
     model = load_lit_model(model_file)
     log.info(f"Model {model} has been successfully loaded")
     log.info(f"This model has {count_parameters(model):,} trainable parameters")
+    error_space = getattr(model.decoder, "error_space", "codeword")
+    log.info(f"Model was trained with error_space={error_space}")
 
     # Resolve code file: explicit --code flag > path stored in checkpoint
     if args.code is not None:
@@ -234,6 +254,10 @@ def main() -> None:
     log.info(f"Results will be saved to file: {output_file}")
 
     if args.hdd:
+        if error_space == "message":
+            raise ValueError(
+                "--hdd is only supported for models trained with error_space=codeword"
+            )
         if code.dmin is None:
             raise ValueError(
                 "--hdd requires a code with a known dmin (not found in .mat file)"

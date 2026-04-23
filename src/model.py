@@ -66,11 +66,8 @@ class SBNDLitModule(LightningModule):
     def model_step(self, batch: tuple[Tensor, Tensor, Tensor]) -> tuple[Tensor, Tensor]:
         ym, s, e_true = batch
         e_pred = self(ym, s)
-        e_true_resized = e_true.narrow(
-            1, 0, e_pred.size(1)
-        )  # make sure target matches model output second dim (n or k)
-        loss = self._cw_loss(e_pred, e_true_resized)
-        acc = self._cw_accuracy(e_pred, e_true_resized)
+        loss = self._cw_loss(e_pred, e_true)
+        acc = self._cw_accuracy(e_pred, e_true)
         return loss, acc
 
     def training_step(
@@ -153,10 +150,7 @@ class SBNDLitModule(LightningModule):
     ) -> tuple[Tensor, Tensor, Tensor]:
         ym, s, e_true = batch
         e_pred = self(ym, s)
-        e_true_resized = e_true.narrow(
-            1, 0, e_pred.size(1)
-        )  # make sure target matches model output size
-        return e_pred, e_true_resized, s  # preds, targets, syndromes
+        return e_pred, e_true, s  # preds, targets, syndromes
 
     def configure_optimizers(self) -> Any:
         optimizer = self.hparams.optimizer(params=self.parameters())  # type: ignore[attr-defined]
