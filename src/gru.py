@@ -3,12 +3,13 @@
 import torch, torch.nn as nn, torch.nn.functional as F
 from torch import Tensor
 from .codes import LinearCode
+from .decoder import BaseDecoder
 from .utils import get_rank_zero_logger
 
 log = get_rank_zero_logger(__name__)
 
 
-class StackedGRU(nn.Module):
+class StackedGRU(BaseDecoder):
 
     def __init__(
         self,
@@ -19,14 +20,13 @@ class StackedGRU(nn.Module):
         bias: bool = True,
         dropout: float = 0.0,
         zero_padding: bool = False,
+        compile: bool = False,
         error_space: str = "codeword",
     ) -> None:
-        super().__init__()
+        super().__init__(code, error_space=error_space, compile=compile)
 
-        self.error_space = error_space
         input_sz = code.n + code.m
-        output_sz = code.k if error_space == "message" else code.n
-        self.hidden_sz, self.output_sz, self.n_steps = hidden_sz, output_sz, n_steps
+        self.hidden_sz, self.n_steps = hidden_sz, n_steps
         self.zero_padding = zero_padding
 
         log.info(
@@ -44,13 +44,13 @@ class StackedGRU(nn.Module):
         self.gru = nn.GRU(
             input_sz, hidden_sz, n_layers, batch_first=True, bias=bias, dropout=dropout
         )
-        self.to_logits = nn.Linear(hidden_sz, output_sz, bias=bias)
+        self.to_logits = nn.Linear(hidden_sz, self.output_sz, bias=bias)
 
         # manually init weights, as pytorch's default was found to give weird results
         self.apply(self._init_weights)
 
-        # for model summary
-        self.example_input_array = torch.zeros(1, code.n), torch.zeros(1, code.m)
+        # call last (compiles the forward graph once all submodules exist)
+        self._maybe_compile()
 
     # manually initialize weights for faster convergence (default init was found to give weird results)
     def _init_weights(self, m: nn.Module) -> None:

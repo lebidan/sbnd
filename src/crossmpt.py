@@ -13,6 +13,7 @@ from typing import Callable
 from torch import Tensor
 from torch.nn import LayerNorm
 from .codes import LinearCode
+from .decoder import BaseDecoder
 from .utils import get_rank_zero_logger
 
 log = get_rank_zero_logger(__name__)
@@ -111,7 +112,7 @@ class PositionwiseFeedForward(nn.Module):
         return self.w_2(self.dropout(F.gelu(self.w_1(x))))
 
 
-class CrossMPT(nn.Module):
+class CrossMPT(BaseDecoder):
     def __init__(
         self,
         code: LinearCode,
@@ -125,11 +126,9 @@ class CrossMPT(nn.Module):
         compile: bool = False,
         error_space: str = "codeword",
     ) -> None:
-        super().__init__()
+        super().__init__(code, error_space=error_space, compile=compile)
 
-        self.error_space = error_space
         N_dec, d_model, h = n_layers, embed_dim, n_heads
-        output_sz = code.k if error_space == "message" else code.n
 
         log.info(f"Building a {n_layers}-layer CrossMPT decoder")
         log.info(f"Embedding dimension = {embed_dim}")
@@ -153,11 +152,7 @@ class CrossMPT(nn.Module):
             EncoderLayer(d_model, c(attn), c(ff), res_dropout), N_dec
         )
         self.oned_final_embed = nn.Sequential(nn.Linear(d_model, 1))
-        self.out_fc = nn.Linear(code.n + code.m, output_sz)
-
-        if compile:
-            log.info("Compiling model forward for faster training")
-            self.compile()
+        self.out_fc = nn.Linear(code.n + code.m, self.output_sz)
 
         # setup masks and other parameters
 
@@ -167,9 +162,8 @@ class CrossMPT(nn.Module):
             if p.dim() > 1:
                 nn.init.xavier_uniform_(p)
 
-        self.example_input_array = torch.zeros(1, code.n), torch.zeros(
-            1, code.m
-        )  # for model summary
+        # call last (compiles the forward graph once all submodules/buffers exist)
+        self._maybe_compile()
 
     def forward(self, ym: Tensor, s: Tensor) -> Tensor:
         VN = ym.unsqueeze(-1) * self.src_embed_VN.unsqueeze(0)

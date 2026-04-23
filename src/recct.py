@@ -18,6 +18,7 @@ import torch, torch.nn as nn, torch.nn.functional as F
 from torch.nn.attention import sdpa_kernel
 from torch import Tensor, BoolTensor
 from .codes import LinearCode
+from .decoder import BaseDecoder
 from .utils import get_rank_zero_logger
 
 log = get_rank_zero_logger(__name__)
@@ -174,7 +175,7 @@ class DecoderLayer(nn.Module):
         return self.to_logits(x)
 
 
-class RECCT(nn.Module):
+class RECCT(BaseDecoder):
     def __init__(
         self,
         code: LinearCode,
@@ -190,7 +191,7 @@ class RECCT(nn.Module):
         compile: bool = False,
         error_space: str = "codeword",
     ) -> None:
-        super().__init__()
+        super().__init__(code, error_space=error_space, compile=compile)
 
         log.info(f"Building a {n_layers}-layer recurrent ECCT decoder")
         log.info(f"The rECCT decoder iterates {n_iters} times over itself internally")
@@ -205,7 +206,6 @@ class RECCT(nn.Module):
             )
         log.info(f"FFN expansion factor = {ffn_expand_factor:.1f}")
 
-        self.error_space = error_space
         self.n_iters = n_iters
         self.n_layers = n_layers
 
@@ -228,20 +228,15 @@ class RECCT(nn.Module):
                 for _ in range(n_layers)
             ]
         )
-        output_size = code.k if error_space == "message" else code.n
-        self.decode = DecoderLayer(embed_dim, code.n + code.m, output_size, bias=bias)
-
-        if compile:
-            log.info("Compiling model forward for faster training")
-            self.compile()
+        self.decode = DecoderLayer(
+            embed_dim, code.n + code.m, self.output_sz, bias=bias
+        )
 
         # initialize parameters
         self.apply(self._init_weights)
 
-        # for model summary
-        self.example_input_array = torch.zeros(1, code.n), torch.zeros(
-            1, code.m
-        )  # for model summary
+        # call last (compiles the forward graph once all submodules/buffers exist)
+        self._maybe_compile()
 
     def _build_mask(self, code: LinearCode):
         mask_size = code.n + code.m
