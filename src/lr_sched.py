@@ -7,7 +7,7 @@ from torch.optim.lr_scheduler import LRScheduler, LambdaLR
 
 
 class CosineWarmupLR(LRScheduler):
-    """CosineAnnealingLR with an added linear warmup"""
+    """CosineAnnealingLR with an added linear warmup. A classic for transformer training"""
 
     def __init__(
         self, optimizer: Optimizer, warmup: int, max_iters: int, lr_min: float = 0.0
