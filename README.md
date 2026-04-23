@@ -182,9 +182,9 @@ To implement your own decoder, inherit from `BaseDecoder` and use [`src/mocked.p
 
 SBND supports two decoding modes, selected via the shared `error_space` parameter on both the decoder and the datamodule (they must agree, and a mismatch is caught at `trainer.fit` start):
 
-1. **Codeword-level decoding** (`error_space: "codeword"`, default) — the standard SBND setup. The decoder is trained to predict the full n-bit error pattern `e_cw = c_hat XOR c_true` affecting the transmitted codeword. Evaluation reports the **FER** on the decoded codeword and the **BER** on the information message, with the codeword-to-message mapping inverted via `Ginv` when the code is non-systematic.
+1. **Codeword-level decoding** (`error_space: "codeword"`, default) — the standard SBND setup. The decoder is trained to predict the full n-bit error pattern `e_cw = c - c_hat` affecting the transmitted codeword. Evaluation reports the **FER** on the decoded codeword and the **BER** on the information message, with the codeword-to-message mapping inverted via `Ginv` when the code is non-systematic.
 
-2. **Message-level decoding** (`error_space: "message"`), which we abbreviate as **iSBND** (information-based SBND), proposed in [De Boni Rovella & Benammar, GLOBECOM 2024](https://arxiv.org/abs/2402.13948). The decoder directly estimates the k-bit error pattern on the information message, computed as `e_msg = (Ginv · e_cw) mod 2`. This mode is particularly well-suited to non-systematic codes, but can also bring a small FER gain on systematic codes: it is generally slightly easier for the model to learn the partial error pattern restricted to the first or last k bits of the codeword (the message part), than the full n-bit error pattern. Evaluation reports FER and BER directly on the information message.
+2. **Message-level decoding** (`error_space: "message"`), which we abbreviate as **iSBND** (information-based SBND), proposed in [De Boni Rovella & Benammar, GLOBECOM 2023](https://arxiv.org/abs/2402.13948). The decoder directly estimates the k-bit error pattern on the information message, computed as `e_msg = Ginv · e_cw`. This mode is particularly well-suited to non-systematic codes, but can also bring a small FER gain on systematic codes: it is generally slightly easier for the model to learn the partial error pattern restricted to the first or last k bits of the codeword (the message part), than the full n-bit error pattern. Evaluation reports FER and BER directly on the information message.
 
 Both the decoder and the datamodule default to `"codeword"`, so standard SBND experiments need no extra config. To switch to iSBND mode, set `error_space: "message"` on both the `decoder:` and `data:` blocks of your experiment config.
 
@@ -404,7 +404,7 @@ The following decoder implementations are adapted from their original authors' c
 * **ECCT** — adapted from [yoniLc/ECCT](https://github.com/yoniLc/ECCT) (MIT License), by Y. Choukroun and L. Wolf
 * **CrossMPT** — adapted from [iil-postech/crossmpt](https://github.com/iil-postech/crossmpt), by S.-J. Park et al.
 
-You may want also to pay a visit to [Gaston de Boni Rovella's github repository](https://github.com/gastondeboni/Syndrome_Based_Neural_Decoding) for another full SBND decoding implementation. .
+You may want also to pay a visit to [Gaston de Boni Rovella's github repository](https://github.com/gastondeboni/Syndrome_Based_Neural_Decoding) for another SBND decoding implementation based on [Keras](https://keras.io/) and [TensorFlow](https://www.tensorflow.org/).
 
 This project has greatly benefited from the following open-source software:
 
