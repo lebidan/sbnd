@@ -207,6 +207,18 @@ class SBNDLitModule(LightningModule):
             if effective_steps:
                 self._adam_step_max_acc.append(max(effective_steps))
 
+    def on_fit_start(self) -> None:
+        # guard against a silent decoder/datamodule mismatch on error_space: the
+        # decoder's output size (n vs k) must match the target size produced by
+        # prepare_data in the datamodule, otherwise loss shapes won't align.
+        dec_es = getattr(self.decoder, "error_space", "codeword")
+        dm_es = getattr(self.trainer.datamodule, "error_space", "codeword")  # type: ignore[attr-defined]
+        if dec_es != dm_es:
+            raise ValueError(
+                f"error_space mismatch: decoder={dec_es!r} but datamodule={dm_es!r}. "
+                "Both must be set to the same value in the experiment config."
+            )
+
     def on_train_epoch_start(self) -> None:
         # log learning rate at the start of each epoch (more convenient than LearningRateMonitor cb)
         cur_lr = self.optimizers().param_groups[0]["lr"]  # type: ignore[union-attr]

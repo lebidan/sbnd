@@ -12,8 +12,6 @@ code:
 
 decoder:
   _target_: sbnd.mocked.MockedDecoder
-  error_space: ${error_space}
-
 # -----------------------------------------------------------------------------
 # Datasets for training, validation and testing
 # -----------------------------------------------------------------------------
@@ -30,8 +28,6 @@ data:
   ebno_dB_test: [2.0, 3.0, 4.0]
   n_test_samples: 2097152
   test_bs: 4096
-  error_space: ${error_space}
-
 # -----------------------------------------------------------------------------
 # Model-specific training setup
 # -----------------------------------------------------------------------------

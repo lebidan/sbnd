@@ -64,12 +64,6 @@ max_epochs: 1
 # default learning rate (to be overridden by experiments)
 lr: 0.001
 
-# space in which the error pattern is predicted/trained against:
-#   "codeword" -> size-n error pattern on c
-#   "message"  -> size-k error pattern on u = Ginv @ c
-# shared by the decoder and the datamodule so they stay consistent.
-error_space: codeword
-
 # prefix for model checkpoint name (default: {exp file name}-{max_epochs}epochs)
 model_ckpt_name: ${hydra:runtime.choices.exp}-${max_epochs}epochs
 
