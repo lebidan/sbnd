@@ -48,6 +48,10 @@ Configuration files for the above experiments: [original/improved ECCT training]
 - Outperforms the original ECCT and CrossMPT decoders with almost 10x fewer parameters
 - Performance closely matches Chase-2 decoding with 64 test patterns
 
+Note: The comparison between results for the (31,16,7) and (32,16,8) codes is reasonable as both codes have very close MLD performance down to FER = 1E-4. The extended code progressively takes over at high SNRs. Compare with the results in Table 3 and Fig. 11 from [the CrossMPT ICLR 2025 paper](https://openreview.net/forum?id=gFvRRCnQvX).
+
+Configuration file to reproduce the rECCT results: [here](https://github.com/lebidan/sbnd/blob/main/conf/exp/recct-ebch-32-16-ml-16m-3dB.yaml)
+
 </details>
 
 
