@@ -24,11 +24,32 @@ Syndrome-Based Neural Decoding
 
 ## 👀 Why SBND? 
 
-Syndrome-based neural decoding holds real promise for soft-decision decoding of short, high-rate codes — but the field is still wide open. Performance lags behind classical decoders like OSD or Chase-2, scaling laws are proorly understood, and more parameter-efficient architectures are yet to be found.
+Syndrome-based neural decoding holds real promise for soft-decision decoding of short, high-rate codes, but the field is still wide open. Performance lags behind classical decoders like OSD or Chase-2, scaling laws are poorly understood, and more parameter-efficient architectures are yet to be found.
 
 `SBND` is built for researchers who want to close that gap. It ships with multiple architectures, reproducible baselines, and a clean training infrastructure — everything you need to run experiments, test new ideas, and push neural decoders further than they've been before. 
 
-<img alt="Splash" src="https://raw.githubusercontent.com/lebidan/sbnd/main/media/fer_63_45.png?raw=true" width=90%>
+<details><summary><b> ⭐ Performance highlight #1:</b> Decoding the (63,45,7) BCH code</summary>
+
+<img alt="Splash BCH(63,45,7)" src="https://raw.githubusercontent.com/lebidan/sbnd/main/media/fer_63_45.png?raw=true" width=90%>
+
+- Two-order of magnitude FER improvement when training the original ECCT with SBND
+- Same or better performance with half the number of parameters when switching to our recurrent ECCT model
+- Performance matches Chase-2 decoding with 64 test patterns
+
+Configuration files for the above experiments: [original/improved ECCT training](https://github.com/lebidan/sbnd/blob/main/conf/exp/ecct-bch-63-45-on-demand-2dB.yaml), [rECCT training](https://github.com/lebidan/sbnd/blob/main/conf/exp/recct-bch-63-45-ml-4m-2dB-aug.yaml)
+
+</details>
+
+<details><summary><b> ⭐ Performance highlight #2:</b> Decoding the (32,16,8) extended BCH code</summary>
+
+<img alt="Splash eBCH(32,16,8)" src="https://raw.githubusercontent.com/lebidan/sbnd/main/media/fer_32_16.png?raw=true" width=90%>
+
+- FER performance within 0.2 dB of MLD
+- Outperforms the original ECCT and CrossMPT decoders with almost 10x fewer parameters
+- Performance closely matches Chase-2 decoding with 64 test patterns
+
+</details>
+
 
 ## 🎯 Features
 
