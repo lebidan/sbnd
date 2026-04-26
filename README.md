@@ -8,23 +8,23 @@ Syndrome-Based Neural Decoding
 </h1>
 
 <p align="center">
-
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue)](https://www.python.org/)
 [![PyTorch 2.9+](https://img.shields.io/badge/PyTorch-2.9%2B-orange)](https://pytorch.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://github.com/lebidan/sbnd/blob/main/LICENSE)
 [![Version](https://img.shields.io/badge/version-0.1.0-lightgrey)]()
+</p>
 
+<p align="center">
 [Overview](#-why-sbnd) | [Features](#-features) | [Installation](#-installation) | [Getting Started](#-getting-started) | [Codes & Decoders](#-supported-codes--decoders) | [Configuration](#-configuration-guide) | [Structure](#-project-structure) | [Contributing](#-contributing) | [Acknowledgments](#-acknowledgments)
+</p>
 
 **`SBND`** is a PyTorch/Lightning framework for training and evaluating syndrome-based neural decoders for linear error-correcting codes.
-
-</p>
 
 ---
 
 ## 👀 Why SBND? 
 
-Syndrome-based neural decoding holds real promise for soft-decision decoding of short, high-rate codes, but the field is still wide open. Performance lags behind classical decoders like OSD or Chase-2, scaling laws are poorly understood, and more parameter-efficient architectures are yet to be found.
+Syndrome-based neural decoding is a promising approach for soft-decision decoding of short, high-rate codes, but the field is still wide open. Performance lags behind classical decoders like OSD or Chase-2, scaling laws are poorly understood, and more parameter-efficient architectures are yet to be found.
 
 `SBND` is built for researchers who want to close that gap. It ships with multiple architectures, reproducible baselines, and a clean training infrastructure — everything you need to run experiments, test new ideas, and push neural decoders further than they've been before. 
 
@@ -32,9 +32,9 @@ Syndrome-based neural decoding holds real promise for soft-decision decoding of 
 
 <img alt="Splash BCH(63,45,7)" src="https://raw.githubusercontent.com/lebidan/sbnd/main/media/fer_63_45.png?raw=true" width=90%>
 
-- Two-order of magnitude FER improvement when training the original ECCT with SBND
+- Training the original ECCT with SBND brings ~two-order of magnitude FER improvement
 - Same or better performance with half the number of parameters when switching to our recurrent ECCT model
-- Performance matches Chase-2 decoding with 64 test patterns
+- Performance is within 0.2 dB of MLD and matches Chase-2 decoding with 64 test patterns
 
 Configuration files for the above experiments: [original/improved ECCT training](https://github.com/lebidan/sbnd/blob/main/conf/exp/ecct-bch-63-45-on-demand-2dB.yaml), [rECCT training](https://github.com/lebidan/sbnd/blob/main/conf/exp/recct-bch-63-45-ml-4m-2dB-aug.yaml)
 
@@ -44,9 +44,8 @@ Configuration files for the above experiments: [original/improved ECCT training]
 
 <img alt="Splash eBCH(32,16,8)" src="https://raw.githubusercontent.com/lebidan/sbnd/main/media/fer_32_16.png?raw=true" width=90%>
 
-- FER performance within 0.2 dB of MLD
-- Outperforms the original ECCT and CrossMPT decoders with almost 10x fewer parameters
-- Performance closely matches Chase-2 decoding with 64 test patterns
+- FER performance within 0.2 dB of MLD and comparable to Chase-2 decoding with 64 test patterns
+- Outperforms the original ECCT and CrossMPT decoders with 8x fewer parameters
 
 Note: The comparison between results for the (31,16,7) and (32,16,8) codes is reasonable as both codes have very close MLD performance down to FER = 1E-4. The extended code progressively takes over at high SNRs. Compare with the results in Table 3 and Fig. 11 from [the CrossMPT ICLR 2025 paper](https://openreview.net/forum?id=gFvRRCnQvX).
 
@@ -174,17 +173,19 @@ Results are saved to a CSV file named after the checkpoint under the output dire
 
 ### Codes
 
-A collection of standard BCH, extended BCH, and QC-LDPC codes are shipped in [`data/codes/`](https://github.com/lebidan/sbnd/tree/main/data/codes). Any linear code can be used by providing a MATLAB `.mat` file with the following fields:
+A collection of standard BCH, extended BCH, QC-LDPC, and a few selected Polar codes are shipped in [`data/codes/`](https://github.com/lebidan/sbnd/tree/main/data/codes). Any linear code can be used by providing a MATLAB `.mat` file with the following fields:
 
 | Field | Required | Description |
 | --- | --- | --- |
 | `n` | ✓ | Code length |
 | `k` | ✓ | Message length |
 | `G` | ✓ | Generator matrix (k × n) |
-| `H` | ✓ | Parity-check matrix (m × n) |
-| `Ginv` |  | Inverse-encoding matrix (n × k) such that `G · Ginv = I_k` mod 2 — used to recover the message from a decoded codeword, and required to train/evaluate in message-level mode (see [Decoding modes](#decoding-modes)). If omitted, it is built automatically when the generator matrix is systematic (identity block at the beginning or end of `G`). For **non-systematic** codes, `Ginv` must be provided explicitly in the `.mat` file. |
-| `dmin` |  | Minimum distance (defaults to 0 if not provided) |
+| `H` | ✓ | Parity-check matrix (m × n, with m ≥ n-k)|
+| `Ginv` |  | Inverse-encoding matrix (n × k) such that `G · Ginv = I_k` — used to recover the message from a decoded codeword, and required to train/evaluate in message-level mode (see [Decoding modes](#decoding-modes)). If omitted, it is built automatically when the generator matrix is systematic (identity block at the beginning or end of `G`). For **non-systematic** codes, `Ginv` must be provided explicitly in the `.mat` file. |
+| `dmin` |  | Minimum distance (defaults to `None` if not provided) |
 | `name` |  | Code family name (defaults to `"Linear"`) |
+
+Polar codes are examples of codes with a non-systematic encoder and for which the code file includes a reverse-encoding matrix `Ginv`.
 
 ### Decoder architectures
 
@@ -197,7 +198,29 @@ SBND ships with four syndrome-based neural decoder architectures:
 | CrossMPT | `sbnd.crossmpt.CrossMPT` | [`crossmpt.py`](https://github.com/lebidan/sbnd/blob/main/src/crossmpt.py) | [Park et al., 2025](https://arxiv.org/abs/2507.01038) |
 | rECCT | `sbnd.recct.RECCT` | [`recct.py`](https://github.com/lebidan/sbnd/blob/main/src/recct.py) | [de Boni Rovella, 2024](https://theses.fr/2024ESAE0065) |
 
-The stacked GRU decoder is the straightforward implementation of Bennatan et al.'s (2018) architecture. ECCT and CrossMPT are essentially the verbatim copies of the original implementations, with some little refactoring to speed up attention calculations and a few minor tweaks here and there to slightly improve accuracy. The rECCT decoder is a recurrent implementation of ECCT which can reach comparable performance with fewer parameters (up to 10x less in certain cases). There has been renewed interest recently in recurrent transformers as a parameter-efficient architecture (see, e.g., arxiv papers on looped transformers).
+<details><summary>GRU decoder</summary>
+
+The stacked GRU decoder is the straightforward implementation of [Bennatan et al.'s (2018) architecture](https://arxiv.org/abs/1802.04741). The syndrome and LLR magnitude vectors are concatenated to form an input vector that is repeated at each time step, unless parameter `zero_padding=True`. In the latter case, the input vector is fed only at the first time step and an all-zero input vectors is used at all subsequent time steps. The error pattern estimate is obtained by passing the output of the last time step through a linear layer. We have found that better performance is obtained by using very few layers (2) and more time steps rather than the deeper 5-layer architecture used in the original paper.
+
+</details>
+
+<details><summary>ECCT decoder</summary>
+
+Essentially the verbatim copy of the implementation published in the [original repo](https://github.com/yoniLc/ECCT). The two main changes are the use of PyTorch's scaled_dot_product_attention function to speed up training, and a mask modified to prevent tokens to attend to themselves. The latter was found to slightly improve accuracy in our experiments.
+
+</details>
+
+<details><summary>CrossMPT decoder</summary>
+
+Verbatim copy of the implementation published in the [original repo](https://github.com/iil-postech/crossmpt), with the use of PyTorch's scaled_dot_product_attention function to speed up training.
+
+</details>
+
+<details><summary>rECCT decoder</summary>
+
+The rECCT decoder is a recurrent implementation of ECCT which can reach comparable performance with fewer parameters (up to 10x less in certain cases). There has been renewed interest recently in recurrent transformers as a parameter-efficient architecture (see, e.g., the many papers on looped transformers that have flourished on arXiv since 2025).
+
+</details><br>
 
 All decoders inherit from the abstract [`BaseDecoder`](https://github.com/lebidan/sbnd/blob/main/src/decoder.py) class in [`src/decoder.py`](https://github.com/lebidan/sbnd/blob/main/src/decoder.py), which defines the shared interface: `forward(ym, s) → logits`, where `ym` is the normalized channel magnitude `|y|/max(|y|)`, `s` is the bipolar syndrome vector, and `logits` is the decoder prediction of the target error pattern. `BaseDecoder` also centralizes the common constructor arguments (`code`, `error_space`, `compile`) and the standard attributes (`output_sz`, `example_input_array`) — see the header of [`src/decoder.py`](https://github.com/lebidan/sbnd/blob/main/src/decoder.py) for the full API description, including the meaning of `error_space` and the convention of calling `self._maybe_compile()` last in the subclass `__init__`.
 

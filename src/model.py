@@ -41,6 +41,15 @@ class SBNDLitModule(LightningModule):
         # "Attribute 'decoder' is an instance of `nn.Module` ..."
         self.save_hyperparameters(logger=False, ignore=["decoder"])
         self.hparams.decoder = decoder  # type: ignore[attr-defined]
+        
+        if decoder.error_space == "message":
+            log.info(
+                "Decoder is configured to predict errors in the message space."
+            )
+        else:
+            log.info(
+                "Decoder is configured to predict errors in the codeword space."
+            )
 
         # special attribute required for i/o shapes calculation in model summary
         self.example_input_array = decoder.example_input_array  # type: ignore[assignment]

@@ -12,20 +12,27 @@ class LinearCode:
         if not mat_file.endswith(".mat"):
             mat_file += ".mat"
         matlab_data = loadmat(mat_file, squeeze_me=True)
+        if "G" not in matlab_data:
+            raise ValueError(f"Matrix G not found in {mat_file}")
         self.G = torch.tensor(matlab_data["G"], dtype=torch.int8)
+        if "H" not in matlab_data:
+            raise ValueError(f"Matrix H not found in {mat_file}")
         self.H = torch.tensor(matlab_data["H"], dtype=torch.int8)
         self.Ht = self.H.T
+        if "n" not in matlab_data or "k" not in matlab_data:
+            raise ValueError(f"Parameters n and k not found in {mat_file}")
         self.n, self.k = matlab_data["n"], matlab_data["k"]
         self.m = self.H.shape[0]
         assert (self.k, self.n) == self.G.shape
         self.rate = self.k * 1.0 / self.n
         self.dmin: int | None = matlab_data["dmin"] if "dmin" in matlab_data else None
         self.name = matlab_data["name"] if "name" in matlab_data else "Linear"
-        self.Ginv = self._load_or_build_Ginv(matlab_data)
         log.info(f"Instantiating a {self} code from file: {mat_file}")
+        self.Ginv = self._load_or_build_Ginv(matlab_data)
 
     def _load_or_build_Ginv(self, matlab_data: dict) -> torch.Tensor:
         if "Ginv" in matlab_data:
+            log.info("Found reverse-encoding matrix Ginv in the code file - Loading it")
             Ginv = torch.tensor(matlab_data["Ginv"], dtype=torch.int8)
             assert Ginv.shape == (self.n, self.k)
         else:
@@ -48,9 +55,9 @@ class LinearCode:
 
     def __repr__(self) -> str:
         return (
-            f"{self.name}({self.n},{self.k},{self.dmin})"
+            f"{self.name} ({self.n},{self.k},{self.dmin})"
             if self.dmin is not None
-            else f"{self.name}({self.n},{self.k})"
+            else f"{self.name} ({self.n},{self.k})"
         )
 
     def encode(self, u: torch.Tensor) -> torch.Tensor:
