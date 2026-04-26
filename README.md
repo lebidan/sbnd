@@ -28,9 +28,11 @@ Syndrome-based neural decoding is a promising approach for soft-decision decodin
 
 `SBND` is built for researchers who want to close that gap. It ships with multiple architectures, reproducible baselines, and a clean training infrastructure — everything you need to run experiments, test new ideas, and push neural decoders further than they've been before. 
 
-<details><summary><b> ⭐ Performance highlight #1:</b> Decoding the (63,45,7) BCH code</summary>
+<b> ⭐ Performance highlights ⭐</b>
 
-<img alt="Splash BCH(63,45,7)" src="https://raw.githubusercontent.com/lebidan/sbnd/main/media/fer_63_45.png?raw=true" width=90%>
+<details><summary>Decoding the (63,45,7) BCH code</summary>
+
+<img alt="BCH(63,45,7) performance" src="https://raw.githubusercontent.com/lebidan/sbnd/main/media/fer_63_45.png?raw=true" width=90%>
 
 - Training the original ECCT with SBND brings ~two-order of magnitude FER improvement
 - Same or better performance with half the number of parameters when switching to our recurrent ECCT model
@@ -40,9 +42,9 @@ Configuration files for the above experiments: [original/improved ECCT training]
 
 </details>
 
-<details><summary><b> ⭐ Performance highlight #2:</b> Decoding the (32,16,8) extended BCH code</summary>
+<details><summary>Decoding the (32,16,8) extended BCH code</summary>
 
-<img alt="Splash eBCH(32,16,8)" src="https://raw.githubusercontent.com/lebidan/sbnd/main/media/fer_32_16.png?raw=true" width=90%>
+<img alt="eBCH(32,16,8) performance" src="https://raw.githubusercontent.com/lebidan/sbnd/main/media/fer_32_16.png?raw=true" width=90%>
 
 - FER performance within 0.2 dB of MLD and comparable to Chase-2 decoding with 64 test patterns
 - Outperforms the original ECCT and CrossMPT decoders with 8x fewer parameters
@@ -53,6 +55,18 @@ Configuration file to reproduce the rECCT results: [here](https://github.com/leb
 
 </details>
 
+<details><summary>Decoding the (96,48,10) quasi-cyclic LDPC</summary>
+
+<img alt="QC-LDPC(96,48,10) performance" src="https://raw.githubusercontent.com/lebidan/sbnd/main/media/fer_96_48.png?raw=true" width=90%>
+
+- High-SNR FER performance within 1.0 dB or less of MLD (still much room for improvement)
+- Matches or outperforms BP with 100 iterations
+
+This very nice and strong short quasi-cyclic LDPC code was designed at [RPTU](https://rptu.de/channel-codes/channel-codes-database/more-ldpc-codes#c94700) and used as example in their [Saturated Min-Sum decoding](https://www.date-conference.com/proceedings-archive/2016/pdf/0760.pdf) DATE 2016 paper. 
+
+Configuration file to reproduce the rECCT results: [here](https://github.com/lebidan/sbnd/blob/main/conf/exp/recct-ldpc-tukl-96-48-on-demand-3dB.yaml)
+
+</details>
 
 ## 🎯 Features
 
@@ -173,7 +187,7 @@ Results are saved to a CSV file named after the checkpoint under the output dire
 
 ### Codes
 
-A collection of standard BCH, extended BCH, QC-LDPC, and Polar codes are shipped in [`data/codes/`](https://github.com/lebidan/sbnd/tree/main/data/codes). Any linear code can be used by providing a MATLAB `.mat` file with the following fields:
+A collection of standard BCH, extended BCH, QC-LDPC, Reed-Muller and Polar codes are shipped in [`data/codes/`](https://github.com/lebidan/sbnd/tree/main/data/codes). Any linear code can be used by providing a MATLAB `.mat` file with the following fields:
 
 | Field | Required | Description |
 | --- | --- | --- |
@@ -185,7 +199,7 @@ A collection of standard BCH, extended BCH, QC-LDPC, and Polar codes are shipped
 | `dmin` |  | Minimum distance (defaults to `None` if not provided) |
 | `name` |  | Code family name (defaults to `"Linear"`) |
 
-Polar codes are examples of codes with a non-systematic encoder and for which the code file includes a reverse-encoding matrix `Ginv`.
+Reed-Muller and Polar codes are examples of codes with a non-systematic encoder and for which the code file includes a reverse-encoding matrix `Ginv`.
 
 ### Decoder architectures
 

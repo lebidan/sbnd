@@ -8,15 +8,17 @@ error_space: message
 
 code:
   _target_: sbnd.codes.LinearCode
-  mat_file: ${codes_dir}/polar.5g.crc11.128.100.mat
+  mat_file: ${codes_dir}/rm.32.16.mat
 
 decoder:
-  _target_: sbnd.ecct.ECCT
+  _target_: sbnd.recct.RECCT
   error_space: ${error_space}
-  n_layers: 6
-  embed_dim: 128
-  n_heads: 8
+  embed_dim: 96
+  n_heads: 6
+  n_layers: 1
+  n_iters: 10
   attn_dropout: 0.1
+  res_dropout: 0.1
   compile: true
 
 # -----------------------------------------------------------------------------
@@ -27,11 +29,11 @@ decoder:
 data:  
   _target_: sbnd.data.SBNDDataModule
   error_space: ${error_space}
-  ebno_dB_train: 2.5
+  ebno_dB_train: 3.0
   on_demand: false
-  train_file: ${data_dir}/polar-5g-crc11-128-100/train-ml-16m-25dB.mat
+  train_file: ${data_dir}/rm-32-16/train-ml-4M-3dB.mat
   train_bs: 4096
-  n_val_samples: 524288
+  val_file: ${data_dir}/rm-32-16/val-ml-512K-3dB.mat
   val_bs: 4096
   ebno_dB_test: [2.0, 3.0, 4.0]
   n_test_samples: 2097152
@@ -42,7 +44,7 @@ data:
 # -----------------------------------------------------------------------------
 
 max_epochs: 128
-lr: 0.0005
+lr: 0.001
 
 optimizer:
   _partial_: true
