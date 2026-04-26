@@ -8,14 +8,14 @@ Syndrome-Based Neural Decoding
 </h1>
 
 <p align="center">
+
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue)](https://www.python.org/)
 [![PyTorch 2.9+](https://img.shields.io/badge/PyTorch-2.9%2B-orange)](https://pytorch.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://github.com/lebidan/sbnd/blob/main/LICENSE)
 [![Version](https://img.shields.io/badge/version-0.1.0-lightgrey)]()
-</p>
 
-<p align="center">
 [Overview](#-why-sbnd) | [Features](#-features) | [Installation](#-installation) | [Getting Started](#-getting-started) | [Codes & Decoders](#-supported-codes--decoders) | [Configuration](#-configuration-guide) | [Structure](#-project-structure) | [Contributing](#-contributing) | [Acknowledgments](#-acknowledgments)
+
 </p>
 
 **`SBND`** is a PyTorch/Lightning framework for training and evaluating syndrome-based neural decoders for linear error-correcting codes.
@@ -173,7 +173,7 @@ Results are saved to a CSV file named after the checkpoint under the output dire
 
 ### Codes
 
-A collection of standard BCH, extended BCH, QC-LDPC, and a few selected Polar codes are shipped in [`data/codes/`](https://github.com/lebidan/sbnd/tree/main/data/codes). Any linear code can be used by providing a MATLAB `.mat` file with the following fields:
+A collection of standard BCH, extended BCH, QC-LDPC, and Polar codes are shipped in [`data/codes/`](https://github.com/lebidan/sbnd/tree/main/data/codes). Any linear code can be used by providing a MATLAB `.mat` file with the following fields:
 
 | Field | Required | Description |
 | --- | --- | --- |
@@ -200,27 +200,27 @@ SBND ships with four syndrome-based neural decoder architectures:
 
 <details><summary>GRU decoder</summary>
 
-The stacked GRU decoder is the straightforward implementation of [Bennatan et al.'s (2018) architecture](https://arxiv.org/abs/1802.04741). The syndrome and LLR magnitude vectors are concatenated to form an input vector that is repeated at each time step, unless parameter `zero_padding=True`. In the latter case, the input vector is fed only at the first time step and an all-zero input vectors is used at all subsequent time steps. The error pattern estimate is obtained by passing the output of the last time step through a linear layer. We have found that better performance is obtained by using very few layers (2) and more time steps rather than the deeper 5-layer architecture used in the original paper.
+The stacked GRU decoder is the straightforward implementation of [Bennatan et al.'s (2018) architecture](https://arxiv.org/abs/1802.04741). The syndrome and LLR magnitude vectors are concatenated to form an input vector that is repeated at each time step, unless parameter `zero_padding=True`. In the latter case, the input vector is fed only at the first time step and an all-zero input vector is used at all subsequent time steps. The error pattern estimate is obtained by passing the output of the last time step through a linear layer. We have found that better performance is obtained by using very few layers (2) and more time steps rather than the deeper 5-layer architecture used in the original paper.
 
 </details>
 
 <details><summary>ECCT decoder</summary>
 
-Essentially the verbatim copy of the implementation published in the [original repo](https://github.com/yoniLc/ECCT). The two main changes are the use of PyTorch's scaled_dot_product_attention function to speed up training, and a mask modified to prevent tokens to attend to themselves. The latter was found to slightly improve accuracy in our experiments.
+Essentially the verbatim copy of the implementation published in the [original repo](https://github.com/yoniLc/ECCT). The two main changes are the use of PyTorch's `scaled_dot_product_attention` function to speed up training, and a mask modified to prevent tokens to attend to themselves. The latter was found to slightly improve accuracy in our experiments.
 
 </details>
 
 <details><summary>CrossMPT decoder</summary>
 
-Verbatim copy of the implementation published in the [original repo](https://github.com/iil-postech/crossmpt), with the use of PyTorch's scaled_dot_product_attention function to speed up training.
+Verbatim copy of the implementation published in the [original repo](https://github.com/iil-postech/crossmpt), with the use of PyTorch's `scaled_dot_product_attention` function to speed up training.
 
 </details>
 
 <details><summary>rECCT decoder</summary>
 
-The rECCT decoder is a recurrent implementation of ECCT which can reach comparable performance with fewer parameters (up to 10x less in certain cases). There has been renewed interest recently in recurrent transformers as a parameter-efficient architecture (see, e.g., the many papers on looped transformers that have flourished on arXiv since 2025).
+The rECCT decoder is a recurrent implementation of ECCT which can reach comparable performance with fewer parameters (up to 10x less in certain cases). It was inspired by the [PhD work](https://theses.fr/2024ESAE0065) of Gaston de Boni Rovella. There has been renewed interest recently in recurrent transformers as a parameter-efficient architecture (see, e.g., the many papers on looped transformers that have flourished on arXiv since 2025).
 
-</details><br>
+</details>
 
 All decoders inherit from the abstract [`BaseDecoder`](https://github.com/lebidan/sbnd/blob/main/src/decoder.py) class in [`src/decoder.py`](https://github.com/lebidan/sbnd/blob/main/src/decoder.py), which defines the shared interface: `forward(ym, s) → logits`, where `ym` is the normalized channel magnitude `|y|/max(|y|)`, `s` is the bipolar syndrome vector, and `logits` is the decoder prediction of the target error pattern. `BaseDecoder` also centralizes the common constructor arguments (`code`, `error_space`, `compile`) and the standard attributes (`output_sz`, `example_input_array`) — see the header of [`src/decoder.py`](https://github.com/lebidan/sbnd/blob/main/src/decoder.py) for the full API description, including the meaning of `error_space` and the convention of calling `self._maybe_compile()` last in the subclass `__init__`.
 
