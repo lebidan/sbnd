@@ -19,13 +19,18 @@ def load_matlab_data(mat_file: str) -> tuple[Tensor, Tensor]:
     try:
         # v7 mat files or earlier are supported by scipy.io
         matlab_data = loadmat(mat_file, squeeze_me=True)
-        y = torch.tensor(matlab_data["y"], dtype=torch.float32)
-        e = torch.tensor(matlab_data["e"], dtype=torch.int8)
     except NotImplementedError:
         # but not v7.3 (=HDF5) mat files, for which we need h5py
-        f = h5py.File(mat_file, "r")
-        y = torch.from_numpy(f["y"][:].astype(np.float32).transpose())
-        e = torch.from_numpy(f["e"][:].astype(np.int8).transpose())
+        with h5py.File(mat_file, "r") as f:
+            if "y" not in f or "e" not in f:
+                raise ValueError(f"Datasets 'y' and 'e' not found in {mat_file}")
+            y = torch.from_numpy(f["y"][:].astype(np.float32).transpose())
+            e = torch.from_numpy(f["e"][:].astype(np.int8).transpose())
+    else:
+        if "y" not in matlab_data or "e" not in matlab_data:
+            raise ValueError(f"Datasets 'y' and 'e' not found in {mat_file}")
+        y = torch.tensor(matlab_data["y"], dtype=torch.float32)
+        e = torch.tensor(matlab_data["e"], dtype=torch.int8)
     assert e.dtype == torch.int8 and y.dtype == torch.float32
     return y, e
 
@@ -274,6 +279,9 @@ class SBNDDataModule(LightningDataModule):
         self, mat_file: str, n_samples: int, train: bool = False
     ) -> tuple[SBNDDataset, int]:
         y, e = load_matlab_data(mat_file)
+        assert (
+            y.shape == e.shape and y.shape[1] == self.code.n
+        ), f"y and e must have shape (n_samples, {self.code.n}); got y={tuple(y.shape)}, e={tuple(e.shape)}"
         n_samples_in_file = y.shape[0]
         if n_samples == 0:
             n_samples = n_samples_in_file

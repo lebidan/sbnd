@@ -1,7 +1,11 @@
 # Data augmentation transforms for SBND training, based on the code automorphisms
 
-import torch
+from importlib.metadata import requires
+
+import torch, numpy as np
+import h5py  # type: ignore[import-untyped]
 from torch import Tensor
+from scipy.io import loadmat  # type: ignore[import-untyped]
 from .codes import LinearCode
 from .utils import get_rank_zero_logger
 
@@ -15,13 +19,14 @@ class BCHPerms:
         b = torch.log2(torch.tensor(code.n + 1, dtype=torch.int)).int()
         perms = [(j + idx * 2**l) % code.n for j in range(code.n) for l in range(b)]
         self.perms = torch.stack(perms)
+        self.n_perms = self.perms.size(0)
         log.info(
             f"Data augmentation: using the {self.perms.size(0)} standard BCH permutations of code {code}"
         )
 
     def __call__(self, y: Tensor, e: Tensor) -> tuple[Tensor, Tensor]:
-        n_perms, bs = self.perms.size(0), y.size(0)
-        perms = self.perms[torch.randint(n_perms, (bs,))]
+        bs = y.size(0)
+        perms = self.perms[torch.randint(self.n_perms, (bs,))]
         yp = y.take_along_dim(perms, dim=-1)
         ep = e.take_along_dim(perms, dim=-1)
         return yp, ep
@@ -38,13 +43,57 @@ class QCPerms:
             for i in range(Zc)
         ]
         self.perms = torch.stack(perms)
+        self.n_perms = self.perms.size(0)
         log.info(
             f"Data augmentation: using the {self.perms.size(0)} QC permutations of code {code}"
         )
 
     def __call__(self, y: Tensor, e: Tensor) -> tuple[Tensor, Tensor]:
-        n_perms, bs = self.perms.size(0), y.size(0)
-        perms = self.perms[torch.randint(n_perms, (bs,))]
+        bs = y.size(0)
+        perms = self.perms[torch.randint(self.n_perms, (bs,))]
+        yp = y.take_along_dim(perms, dim=-1)
+        ep = e.take_along_dim(perms, dim=-1)
+        return yp, ep
+
+
+class GenericPerms:
+    def __init__(
+        self, code: LinearCode, mat_file: str, num_perms: int | None = None
+    ) -> None:
+        if not mat_file.endswith(".mat"):
+            mat_file += ".mat"
+        try:
+            # v7 mat files or earlier are supported by scipy.io
+            matlab_data = loadmat(mat_file, squeeze_me=True)
+        except NotImplementedError:
+            # but not v7.3 (=HDF5) mat files, for which we need h5py
+            with h5py.File(mat_file, "r") as f:
+                if "perms" not in f:
+                    raise ValueError(f"Dataset perms not found in {mat_file}")
+                # take_along_dim requires int64 indices 
+                perms = torch.from_numpy(f["perms"][:].astype(np.int64).transpose())
+        else:
+            if "perms" not in matlab_data:
+                raise ValueError(f"Dataset perms not found in {mat_file}")
+            # take_along_dim requires int64 indices 
+            perms = torch.tensor(matlab_data["perms"], dtype=torch.int64)
+        assert (
+            perms.ndim == 2 and perms.size(1) == code.n
+        ), "permutations must be a 2D array of shape (n_perms, code.n)"
+        total_perms = perms.size(0)
+        if num_perms is not None and num_perms > total_perms:
+            log.warning(
+                f"Requested {num_perms} permutations but file only contains {total_perms}; using all {total_perms}"
+            )
+        self.n_perms = total_perms if num_perms is None else min(num_perms, total_perms)
+        self.perms = perms[: self.n_perms]
+        log.info(
+            f"Data augmentation: using {self.n_perms} permutations from file {mat_file}"
+        )
+
+    def __call__(self, y: Tensor, e: Tensor) -> tuple[Tensor, Tensor]:
+        bs = y.size(0)
+        perms = self.perms[torch.randint(self.n_perms, (bs,))]
         yp = y.take_along_dim(perms, dim=-1)
         ep = e.take_along_dim(perms, dim=-1)
         return yp, ep
