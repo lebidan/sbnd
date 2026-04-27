@@ -13,16 +13,25 @@ log = get_rank_zero_logger(__name__)
 
 
 class BCHPerms:
-    def __init__(self, code: LinearCode) -> None:
+    def __init__(self, code: LinearCode, is_extended: bool = False) -> None:
         # precompute the subgroup of cyclic x frobenius permutations
-        idx = torch.arange(code.n)
-        b = torch.log2(torch.tensor(code.n + 1, dtype=torch.int)).int()
-        perms = [(j + idx * 2**l) % code.n for j in range(code.n) for l in range(b)]
-        self.perms = torch.stack(perms)
-        self.n_perms = self.perms.size(0)
+        n = code.n - 1 if is_extended else code.n
+        idx = torch.arange(n, dtype=torch.int64) # take_along_dim requires int64 indices
+        b = torch.log2(torch.tensor(n + 1, dtype=torch.int)).int()
+        perms = [(j + idx * 2**l) % n for j in range(n) for l in range(b)]
+        perms = torch.stack(perms)
+        self.n_perms = perms.size(0)
+        if is_extended:
+            # add the fixed extension bit to the end of each permutation
+           perms = torch.hstack([perms, n * torch.ones(self.n_perms, 1, dtype=torch.int64)])
+        self.perms = perms
         log.info(
-            f"Data augmentation: using the {self.perms.size(0)} standard BCH permutations of code {code}"
+            f"Data augmentation: using the {self.n_perms} cyclic x Frobenius permutations of {code}"
         )
+        if is_extended:
+            log.info(
+                f"Note: This is only a small subset of the full automorphism group of the eBCH code"
+            )
 
     def __call__(self, y: Tensor, e: Tensor) -> tuple[Tensor, Tensor]:
         bs = y.size(0)
@@ -45,7 +54,7 @@ class QCPerms:
         self.perms = torch.stack(perms)
         self.n_perms = self.perms.size(0)
         log.info(
-            f"Data augmentation: using the {self.perms.size(0)} QC permutations of code {code}"
+            f"Data augmentation: using the {self.n_perms} quasi-cyclic permutations of code {code}"
         )
 
     def __call__(self, y: Tensor, e: Tensor) -> tuple[Tensor, Tensor]:
@@ -88,7 +97,7 @@ class GenericPerms:
         self.n_perms = total_perms if num_perms is None else min(num_perms, total_perms)
         self.perms = perms[: self.n_perms]
         log.info(
-            f"Data augmentation: using {self.n_perms} permutations from file {mat_file}"
+            f"Data augmentation: using {self.n_perms} permutations read from file {mat_file}"
         )
 
     def __call__(self, y: Tensor, e: Tensor) -> tuple[Tensor, Tensor]:

@@ -9,11 +9,13 @@ code:
   mat_file: ${codes_dir}/polar.5g.crc11.128.100.mat
 
 decoder:
-  _target_: sbnd.ecct.ECCT
-  n_layers: 6
-  embed_dim: 64
+  _target_: sbnd.recct.RECCT
+  embed_dim: 192
   n_heads: 8
+  n_layers: 1
+  n_iters: 10
   attn_dropout: 0.1
+  res_dropout: 0.1
   compile: true
 
 # -----------------------------------------------------------------------------
