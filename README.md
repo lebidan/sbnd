@@ -329,6 +329,8 @@ Pre-computed training datasets are too large to ship with the repository. Most o
 
 | Code | Dataset description | Size | Link |
 | --- | --- | --- | --- |
+| RM(32,16,8) | 4M training + 512K validation samples collected at Eb/N0 = 3 dB | ~1 GB | [Download](https://sdrive.cnrs.fr/s/waykmQteWx5RZPn) |
+| eBCH(32,16,8) | 4M training + 512K validation samples collected at Eb/N0 = 3 dB | ~1 GB | [Download](https://sdrive.cnrs.fr/s/fx7kN9s5MwZfi35) |
 | BCH(31,21,5) | 4M training + 512K validation samples collected at Eb/N0 = 3 dB | ~1 GB | [Download](https://sdrive.cnrs.fr/s/bKBHagxAwLiNNzn) |
 | BCH(63,45,7) | 4M training + 512K validation samples collected at Eb/N0 = 2 dB | ~2.2 GB | [Download](https://sdrive.cnrs.fr/s/wMDN6beY2Gnb7rg) |
 
@@ -347,7 +349,7 @@ Additional datasets used to produce the results in our [ICMLCN 2025 paper](https
 
 For modes 2 and 3 (fixed datasets), data augmentation can be enabled via the `transform` option. This applies random permutations from the code's automorphism group to each batch, effectively multiplying the number of distinct training examples. At present, the following code-specific transforms are available in [`transforms.py`](https://github.com/lebidan/sbnd/blob/main/src/transforms.py):
 
-* [`BCHPerms`](https://github.com/lebidan/sbnd/blob/main/src/transforms.py) — cyclic × Frobenius permutations for BCH codes
+* [`BCHPerms`](https://github.com/lebidan/sbnd/blob/main/src/transforms.py) — cyclic × Frobenius permutations for BCH codes (works with extended BCH too by setting `is_extended = true`)
 * [`QCPerms`](https://github.com/lebidan/sbnd/blob/main/src/transforms.py) — quasi-cyclic shift permutations for QC-LDPC codes (requires the circulant size `Zc`)
 
 ```yaml
@@ -355,6 +357,7 @@ data:
   transform:
     _partial_: true
     _target_: sbnd.transforms.BCHPerms   # or sbnd.transforms.QCPerms
+    is_extended: true # for eBCH codes only
 ```
 
 ### Model

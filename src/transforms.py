@@ -16,14 +16,18 @@ class BCHPerms:
     def __init__(self, code: LinearCode, is_extended: bool = False) -> None:
         # precompute the subgroup of cyclic x frobenius permutations
         n = code.n - 1 if is_extended else code.n
-        idx = torch.arange(n, dtype=torch.int64) # take_along_dim requires int64 indices
+        idx = torch.arange(
+            n, dtype=torch.int64
+        )  # take_along_dim requires int64 indices
         b = torch.log2(torch.tensor(n + 1, dtype=torch.int)).int()
         perms = [(j + idx * 2**l) % n for j in range(n) for l in range(b)]
         perms = torch.stack(perms)
         self.n_perms = perms.size(0)
         if is_extended:
             # add the fixed extension bit to the end of each permutation
-           perms = torch.hstack([perms, n * torch.ones(self.n_perms, 1, dtype=torch.int64)])
+            perms = torch.hstack(
+                [perms, n * torch.ones(self.n_perms, 1, dtype=torch.int64)]
+            )
         self.perms = perms
         log.info(
             f"Data augmentation: using the {self.n_perms} cyclic x Frobenius permutations of {code}"
@@ -79,12 +83,12 @@ class GenericPerms:
             with h5py.File(mat_file, "r") as f:
                 if "perms" not in f:
                     raise ValueError(f"Dataset perms not found in {mat_file}")
-                # take_along_dim requires int64 indices 
+                # take_along_dim requires int64 indices
                 perms = torch.from_numpy(f["perms"][:].astype(np.int64).transpose())
         else:
             if "perms" not in matlab_data:
                 raise ValueError(f"Dataset perms not found in {mat_file}")
-            # take_along_dim requires int64 indices 
+            # take_along_dim requires int64 indices
             perms = torch.tensor(matlab_data["perms"], dtype=torch.int64)
         assert (
             perms.ndim == 2 and perms.size(1) == code.n
