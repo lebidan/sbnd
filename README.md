@@ -256,7 +256,7 @@ Training is orchestrated by [`SBNDLitModule`](https://github.com/lebidan/sbnd/bl
 
 Training configuration is managed with [Hydra](https://hydra.cc). The base config [`conf/train.yaml`](https://github.com/lebidan/sbnd/blob/main/conf/train.yaml) defines defaults for hardware, logging, callbacks, and path variables such as `codes_dir` (default: `./data/codes`). Experiment configs under [`conf/exp/`](https://github.com/lebidan/sbnd/tree/main/conf/exp) override what they need, following the naming convention `<decoder>-<code>-<data_mode>-<dataset_size>-<snr>[-aug].yaml`. The `dev-test-mocked` experiment is an exception to this convention: it serves as a quick sanity check and is the default when no experiment is specified.
 
-> We recommend starting from the shipped examples in [`conf/exp/`](https://github.com/lebidan/sbnd/tree/main/conf/exp) and adapting them to your needs.
+> We recommend starting from the shipped examples in [`conf/exp/`](https://github.com/lebidan/sbnd/tree/main/conf/exp) and adapting them to your needs. Each training experiment comes with a model performance evaluation log file in [`log/test`](https://github.com/lebidan/sbnd/tree/main/log/test).
 
 ### Code
 
