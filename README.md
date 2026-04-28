@@ -8,13 +8,21 @@ Syndrome-Based Neural Decoding
 </h1>
 
 <p align="center">
-[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue)](https://www.python.org/)
-[![PyTorch 2.9+](https://img.shields.io/badge/PyTorch-2.9%2B-orange)](https://pytorch.org/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://github.com/lebidan/sbnd/blob/main/LICENSE)
-[![Version](https://img.shields.io/badge/version-0.1.0-lightgrey)]()
+<a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.10%2B-blue" alt="Python 3.10+"/></a>
+<a href="https://pytorch.org/"><img src="https://img.shields.io/badge/PyTorch-2.9%2B-orange" alt="PyTorch 2.9+"/></a>
+<a href="https://github.com/lebidan/sbnd/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License: MIT"/></a>
+<img src="https://img.shields.io/badge/version-0.1.0-lightgrey" alt="Version"/>
 </p>
 <p align="center">
-[Overview](#-why-sbnd) | [Features](#-features) | [Installation](#-installation) | [Getting Started](#-getting-started) | [Codes & Decoders](#-supported-codes--decoders) | [Configuration](#-configuration-guide) | [Structure](#-project-structure) | [Contributing](#-contributing) | [Acknowledgments](#-acknowledgments)
+<a href="#-why-sbnd">Overview</a> |
+<a href="#-features">Features</a> |
+<a href="#-installation">Installation</a> |
+<a href="#-getting-started">Getting Started</a> |
+<a href="#-supported-codes--decoders">Codes &amp; Decoders</a> |
+<a href="#-configuration-guide">Configuration</a> |
+<a href="#-project-structure">Structure</a> |
+<a href="#-contributing">Contributing</a> |
+<a href="#-acknowledgments">Acknowledgments</a>
 </p>
 
 **`SBND`** is a PyTorch/Lightning framework for training and evaluating syndrome-based neural decoders for linear error-correcting codes.
