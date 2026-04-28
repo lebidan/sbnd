@@ -51,5 +51,23 @@ batch_size: 4096
 num_workers: 8
 
 # Hard-decision decoding emulation (requires a code with known dmin and a
-# model trained in error_space=codeword)
+# model trained in error_space=codeword); can be combined with TTS below
 hdd: false
+
+# Decoding strategy. Defaults to the no-TTS baseline (one forward pass per
+# sample). Override in an eval preset or on the CLI to enable a test-time
+# scaling variant, e.g.
+#   # Self-Boosting (sequential TTS)
+#   tts:
+#     _target_: sbnd.tts.SelfBoostingDecoder
+#     num_iters: 5
+#
+#   # TTA (parallel TTS via code automorphisms)
+#   tts:
+#     _target_: sbnd.tts.TTADecoder
+#     num_perms: 4
+#     transform:
+#       _partial_: true
+#       _target_: sbnd.transforms.BCHPerms
+tts:
+  _target_: sbnd.tts.SingleShotDecoder

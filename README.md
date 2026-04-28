@@ -85,6 +85,7 @@ Configuration file to reproduce the rECCT results: [here](https://github.com/leb
 * **Data augmentation** — leverage code automorphisms to increase training diversity
 * **Multi-GPU** — distributed training via PyTorch Lightning DDP
 * **Monte Carlo evaluation** — evaluate trained models over configurable Eb/N0 ranges with BER/WER reporting
+* **Test-time scaling** — boost decoding performance at inference with sequential (self-boosting) or parallel (test-time augmentation) variants
 * **Experiment tracking** — built-in CSV and [Weights & Biases](https://wandb.ai) logging with gradient/weight monitoring
 
 ## 💻 Installation
@@ -207,7 +208,44 @@ Results are saved to a CSV file named after the checkpoint under the output dire
 | `num_batches` | 1024 | Number of batches per SNR point |
 | `num_workers` | 8 | Number of workers for dataloading |
 | `hdd` | `false` | Emulate hard-decision decoding (perfect correction if errors ≤ t). Requires a code with known `dmin` and a model trained in `error_space=codeword` |
+| `tts` | `SingleShotDecoder` | Decoding strategy — see [Test-time scaling](#test-time-scaling) |
 | `output_dir` | `./log/test` | Output directory for the results CSV |
+
+#### Test-time scaling
+
+Beyond the no-TTS baseline (one forward pass per sample), `sbnd-test` supports two test-time scaling (TTS) variants that trade extra inference compute for lower error rates. Both can be activated through the `tts:` block in the evaluation config and require a model trained in `error_space=codeword` (the syndrome check that drives early termination only makes sense in codeword space). The active strategy is appended to the output filename so different TTS sweeps don't overwrite one another (e.g. `<model>-sb5.csv`, `<model>-tta4.csv`). TTS combines with `hdd: true`, in which case both suffixes appear (e.g. `<model>-sb5-hdd.csv`).
+
+**1. Self-boosting** (sequential TTS, [`SelfBoostingDecoder`](https://github.com/lebidan/sbnd/blob/main/src/tts.py)). The model iterates over its own predictions in an attempt to correct the errors left at the previous iteration. The loop stops as soon as a sample's prediction passes the syndrome check, or after a maximum of `num_iters` model invocations. Early references to such a strategy are the *Iterative Error Correction* approach of [Kavvousanos & Paliouras, GLOBECOM 2020](https://ieeexplore.ieee.org/document/9367553) and the *Iterative Error Decimation* decoder by [Kamassury & Silva (2021)](https://arxiv.org/abs/2012.00089).
+
+```yaml
+tts:
+  _target_: sbnd.tts.SelfBoostingDecoder
+  num_iters: 5
+```
+
+**2. Test-time augmentation** (parallel TTS, [`TTADecoder`](https://github.com/lebidan/sbnd/blob/main/src/tts.py)). For each test sample, draw `num_perms` random code automorphisms from the same `transforms.py` classes used for training-time data augmentation (`BCHPerms`, `QCPerms`, `GenericPerms`). Each permutation is applied to the received word, the model is run, and the resulting logits are inverse-permuted back to the original coordinates. If one of the predictions passes the syndrome check, this is the model output. Otherwise the output logits are calculated as the average of all predictions.
+
+```yaml
+tts:
+  _target_: sbnd.tts.TTADecoder
+  num_perms: 4
+  transform:
+    _partial_: true
+    _target_: sbnd.transforms.BCHPerms   # same classes as the training transform
+    is_extended: false                    # set true for eBCH codes
+```
+
+The `_partial_: true` pattern lets Hydra inject the loaded `code` into the transform at decode time, mirroring the training data-augmentation setup (see [Data augmentation](#data-augmentation)).
+
+Both TTS variants can be activated either by adding the block above to a [`conf/eval/`](https://github.com/lebidan/sbnd/tree/main/conf/eval) preset or directly on the command line:
+
+```
+sbnd-test model=/path/to/my-model.ckpt eval=bch-31-21 \
+  tts._target_=sbnd.tts.SelfBoostingDecoder +tts.num_iters=10
+```
+
+The self-boosting and TTA strategies have been compared in the [PhD thesis of A. Ismail, Chap. 4.2](https://theses.fr/2025IMTA0515). Both rapidly increase the inference cost and show diminishing returns as the model gets better. Whenever applicable, hard-decision decoding (`hdd` emulation flag) remains the most cost-efficient and effective strategy to get an extra boost in performance at inference time.
+
 
 ## 🔍 Supported Codes & Decoders
 
@@ -462,7 +500,7 @@ periodic_test_cb:
   every_n_epochs: 100   # or 0 to disable
 ```
 
-> For more comprehensive model performance evaluation including bit-error rate, use the `sbnd-test` command as described in the [Getting Started](#-getting-started) section.
+> For more comprehensive model evaluation including bit-error rate performance and access to different test-time scaling strategies, use the `sbnd-test` command as described in the [Getting Started](#-getting-started) section.
 
 ## 📁 Project Structure
 
@@ -486,7 +524,8 @@ sbnd/
 │   ├── recct.py                # rECCT decoder
 │   ├── gru.py                  # StackedGRU decoder
 │   ├── mocked.py               # Minimal template decoder
-│   ├── transforms.py           # Data augmentation (BCHPerms, QCPerms)
+│   ├── transforms.py           # Code automorphisms (BCHPerms, QCPerms, GenericPerms) — used for both training-time augmentation and TTA
+│   ├── tts.py                  # Decoding strategies: no-TTS baseline, SelfBoosting, TTA
 │   ├── lr_sched.py             # LR schedulers (CosineWarmupLR, WarmupStableDecayLR)
 │   ├── train.py                # sbnd-train entry point
 │   ├── test.py                 # sbnd-test entry point

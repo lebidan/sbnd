@@ -3,6 +3,7 @@
 import os, csv, pathlib
 import torch, hydra
 
+from hydra.utils import instantiate
 from torch import Tensor
 from torch.utils.data import DataLoader
 from omegaconf import DictConfig
@@ -13,6 +14,7 @@ from .utils import get_rank_zero_logger
 from .codes import LinearCode
 from .model import SBNDLitModule
 from .data import OnDemandDataset
+from .tts import SingleShotDecoder
 
 log = get_rank_zero_logger(__name__)
 
@@ -128,12 +130,15 @@ def test_model(
     model: SBNDLitModule,
     ebno_dB_range: Tensor,
     output_file: str,
+    tts: object | None = None,
     test_bs: int = 4096,
     n_test_batches: int = 512,
     num_workers: int = 16,
     show_progress: bool = True,
     t: int = 0,
 ) -> list[dict[str, float]]:
+    if tts is None:
+        tts = SingleShotDecoder()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
     if torch.cuda.is_available():
@@ -185,8 +190,10 @@ def test_model(
         with torch.no_grad():
             for batch in tqdm(dl, disable=not show_progress):
                 ym, syndromes, targets = batch
-                logits = model(ym.to(device), syndromes.to(device))
-                preds = bipolar_to_bit(logits)
+                ym_dev = ym.to(device)
+                synd_dev = syndromes.to(device)
+                targets_dev = targets.to(device)
+                preds = tts.decode(model, code, ym_dev, synd_dev, targets_dev)  # type: ignore[attr-defined]
                 update_error_stats(
                     code, error_space, preds.cpu(), targets, syndromes, error_stats, t
                 )
@@ -246,9 +253,14 @@ def main(cfg: DictConfig) -> None:
     if cfg.hdd:
         log.info(f"HDD emulation enabled (correction capability t = {t})")
 
+    # Instantiate the test-time scaling strategy (defaults to single-shot)
+    tts = instantiate(cfg.tts)
+    tts.validate(model, code)
+    log.info(f"TTS strategy: {tts.name} (suffix={tts.suffix or '<none>'})")
+
     # Build the output file path
     pathlib.Path(cfg.output_dir).mkdir(parents=True, exist_ok=True)
-    suffix = "-hdd" if cfg.hdd else ""
+    suffix = tts.suffix + ("-hdd" if cfg.hdd else "")
     output_file = cfg.output_dir + "/" + pathlib.Path(model_file).stem + suffix + ".csv"
     log.info(f"Results will be saved to file: {output_file}")
 
@@ -259,6 +271,7 @@ def main(cfg: DictConfig) -> None:
         model,
         ebno_dB_range,
         output_file,
+        tts=tts,
         num_workers=cfg.num_workers,
         test_bs=cfg.batch_size,
         n_test_batches=cfg.num_batches,
