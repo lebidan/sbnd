@@ -1,0 +1,55 @@
+# -----------------------------------------------------------------------------
+# Base config for model evaluation
+# -----------------------------------------------------------------------------
+defaults:
+  - _self_
+  - eval: null
+  - override hydra/job_logging: colorlog
+  - override hydra/hydra_logging: colorlog
+
+# task name, determines output directory path
+task_name: test
+
+# path to root and logging directories
+root_dir: .
+log_dir: ${root_dir}/log
+
+# CSV output directory (one file per checkpoint, dedup/append on re-runs)
+output_dir: ${log_dir}/${task_name}
+
+# Suppress all of hydra's disk artifacts: no run dir, no .hydra/ snapshot,
+# no .log file. Logging is colorlog-on-stdout only.
+hydra:
+  output_subdir: null
+  run:
+    dir: .
+  job_logging:
+    handlers:
+      # Required to avoid hydra creating an empty test.log file in the root dir
+      # `delay: true` defers FileHandler.open() until the first emit; since this
+      # handler is detached from the root logger below, the file is never created.
+      file:
+        delay: true
+    root:
+      handlers: [console]
+
+# -----------------------------------------------------------------------------
+# Evaluation parameters
+# -----------------------------------------------------------------------------
+
+# Required: model checkpoint. Pass on CLI as `model=/path/to/foo.ckpt`
+model: ???
+
+# Eb/N0 sweep (dB)
+snr_min: 0.0
+snr_max: 5.0
+snr_step: 1.0
+
+# Monte Carlo sampling
+num_batches: 1024
+batch_size: 4096
+num_workers: 8
+
+# Hard-decision decoding emulation (requires a code with known dmin and a
+# model trained in error_space=codeword)
+hdd: false

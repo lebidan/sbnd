@@ -1,13 +1,15 @@
 # Evaluate the test performance of a trained SBND model through Monte Carlo simulations.
 
-import torch, pathlib, argparse, csv
+import os, csv, pathlib
+import torch, hydra
 
 from torch import Tensor
 from torch.utils.data import DataLoader
+from omegaconf import DictConfig
 from tqdm import tqdm  # type: ignore[import-untyped]
 from tabulate import tabulate  # type: ignore[import-untyped]
 
-from .utils import get_rank_zero_logger, setup_logging
+from .utils import get_rank_zero_logger
 from .codes import LinearCode
 from .model import SBNDLitModule
 from .data import OnDemandDataset
@@ -29,6 +31,16 @@ def bipolar_to_bit(x: Tensor) -> Tensor:
 
 # column labels for the output csv file
 COLUMNS = ["Eb/N0", "WER", "BER", "CW errors", "Bit errors", "Total CW"]
+
+# Decimal precision used when keying rows by Eb/N0. Picked large enough to
+# distinguish the smallest SNR step we'd realistically use (0.01 dB), and
+# small enough to absorb fp drift between torch.arange and CSV reading.
+SNR_KEY_DECIMALS = 4
+
+
+def _snr_key(x: float) -> float:
+    """Round an Eb/N0 value to a stable precision for use as a dict key."""
+    return round(x, SNR_KEY_DECIMALS)
 
 
 def load_csv(path: str) -> list[dict[str, float]]:
@@ -95,6 +107,22 @@ def update_error_stats(
     stats["CW errors"] += torch.any(fer_err, dim=1).sum().item()
 
 
+def resolve_hdd_t(model: SBNDLitModule, code: LinearCode, hdd: bool) -> int:
+    """Compute the HDD correction capability t from the code's dmin (0 if HDD is disabled)."""
+    if not hdd:
+        return 0
+    error_space = getattr(model.decoder, "error_space", "codeword")
+    if error_space == "message":
+        raise ValueError(
+            "hdd=true is only supported for models trained with error_space=codeword"
+        )
+    if code.dmin is None:
+        raise ValueError(
+            "hdd=true requires a code with a known dmin (not found in .mat file)"
+        )
+    return (code.dmin - 1) // 2
+
+
 def test_model(
     code: LinearCode,
     model: SBNDLitModule,
@@ -113,24 +141,38 @@ def test_model(
     model = model.to(device)
     model.eval()
     error_space = getattr(model.decoder, "error_space", "codeword")
-    # Load existing rows if the output file already exists, otherwise start fresh
-    rows: list[dict[str, float]] = []
+    # Load existing rows if the output file already exists, otherwise start fresh.
+    # Index by Eb/N0 so we can accumulate stats when re-running the same SNR point.
+    # Keys are rounded to SNR_KEY_DECIMALS to absorb fp drift between torch.arange
+    # accumulation and CSV float round-trips (matters for steps like 0.1 or 0.05).
+    stats_by_snr: dict[float, dict[str, float]] = {}
     if pathlib.Path(output_file).exists():
-        rows = load_csv(output_file)
+        for row in load_csv(output_file):
+            row["Eb/N0"] = _snr_key(row["Eb/N0"])
+            stats_by_snr[row["Eb/N0"]] = row
         log.info(
-            f"Appending to existing file: {output_file} ({len(rows)} rows already present)"
+            f"Appending to existing file: {output_file} ({len(stats_by_snr)} rows already present)"
         )
     # Setup and run MC simulation
     for ebno_dB in ebno_dB_range:
+        snr = _snr_key(ebno_dB.item())
         print(f"Simulating Eb/N0 = {ebno_dB} dB")
+        # Seed counters from any existing row at this SNR so new samples
+        # accumulate on top instead of replacing it.
+        prev = stats_by_snr.get(snr)
         error_stats: dict[str, float] = {
-            "Eb/N0": ebno_dB.item(),
+            "Eb/N0": snr,
             "WER": 0.0,
             "BER": 0.0,
-            "CW errors": 0.0,
-            "Bit errors": 0.0,
-            "Total CW": 0.0,
+            "CW errors": prev["CW errors"] if prev is not None else 0.0,
+            "Bit errors": prev["Bit errors"] if prev is not None else 0.0,
+            "Total CW": prev["Total CW"] if prev is not None else 0.0,
         }
+        if prev is not None:
+            log.info(
+                f"Cumulating with existing stats at Eb/N0={snr} dB "
+                f"({int(prev['Total CW']):,} CW already simulated)"
+            )
         ds = OnDemandDataset(
             code,
             ebno_dB=ebno_dB,
@@ -148,70 +190,28 @@ def test_model(
                 update_error_stats(
                     code, error_space, preds.cpu(), targets, syndromes, error_stats, t
                 )
-        # collect error stats in a list of dicts
+        # recompute WER/BER from the cumulative totals
         error_stats["WER"] = error_stats["CW errors"] * 1.0 / error_stats["Total CW"]
         error_stats["BER"] = error_stats["Bit errors"] / (
             error_stats["Total CW"] * code.k
         )
-        # append new SNR point, then deduplicate by Eb/N0 keeping the latest value
-        rows.append(error_stats)
-        deduped: dict[float, dict[str, float]] = {}
-        for row in rows:
-            deduped[row["Eb/N0"]] = row
-        rows = list(deduped.values())
+        stats_by_snr[snr] = error_stats
         # print error stats and save to csv after each SNR point
         print(error_stats)
-        write_csv(rows, output_file)
-    return rows
+        write_csv(list(stats_by_snr.values()), output_file)
+    return list(stats_by_snr.values())
 
 
-def main() -> None:
+# conf/ is not part of the installed package; it lives in the project root.
+# sbnd-test must be run from the directory that contains conf/.
+_conf_dir = os.path.join(os.getcwd(), "conf")
 
-    setup_logging()  # mimic hydra's nice colorful logging style in the terminal
 
-    # Parse command-line arguments
-    parser = argparse.ArgumentParser(
-        prog="test", description="Evaluate the FER & BER performance of a trained model"
-    )
-    parser.add_argument("model", type=str, help="model checkpoint")
-    parser.add_argument(
-        "--code",
-        type=str,
-        help="code .mat file path (overrides the path stored in the checkpoint)",
-        default=None,
-    )
-    parser.add_argument(
-        "--output", type=str, help="path to output csv file", default="./log/test"
-    )
-    parser.add_argument(
-        "--snr_min", type=float, help="minimum Eb/N0 value to simulate", default=0.0
-    )
-    parser.add_argument(
-        "--snr_max", type=float, help="maximum Eb/N0 value to simulate", default=5.0
-    )
-    parser.add_argument(
-        "--snr_step", type=float, help="step between Eb/N0 values", default=1.0
-    )
-    parser.add_argument("--batch_size", type=int, help="test batch size", default=4096)
-    parser.add_argument(
-        "--num_batches",
-        type=int,
-        help="number of batches per Eb/N0 value",
-        default=1024,
-    )
-    parser.add_argument(
-        "--num_workers", type=int, help="number of workers for dataloading", default=8
-    )
-    parser.add_argument(
-        "--hdd",
-        action="store_true",
-        help="emulate hard-decision decoding (perfect correction if errors <= t)",
-        default=False,
-    )
-    args = parser.parse_args()
+@hydra.main(version_base="1.3", config_path=_conf_dir, config_name="test")
+def main(cfg: DictConfig) -> None:
 
     # Load model first (code path is stored in its hparams)
-    model_file = args.model
+    model_file = cfg.model
     if not model_file.endswith(".ckpt"):
         model_file += ".ckpt"
     log.info(f"Loading model from file: {model_file}")
@@ -221,51 +221,36 @@ def main() -> None:
     error_space = getattr(model.decoder, "error_space", "codeword")
     log.info(f"Model was trained with error_space={error_space}")
 
-    # Resolve code file: explicit --code flag > path stored in checkpoint
-    if args.code is not None:
-        code_file = args.code
-    else:
-        code_file = model.hparams.code_path  # type: ignore[attr-defined]
-        if not code_file:
-            raise ValueError(
-                "No code path found in checkpoint hparams. "
-                "Use --code to specify the code file explicitly."
-            )
+    # Resolve code file from the path stored in the checkpoint
+    code_file = model.hparams.code_path  # type: ignore[attr-defined]
+    if not code_file:
+        raise ValueError("No code path found in checkpoint hparams.")
     if not code_file.endswith(".mat"):
         code_file += ".mat"
     log.info(f"Loading code from file: {code_file}")
     code = LinearCode(code_file)
     log.info(f"Code {code} has been successfully loaded")
 
-    # Load simulation parameters
-    ebno_dB_range = torch.arange(
-        args.snr_min, args.snr_max + args.snr_step, args.snr_step
+    # Build the Eb/N0 sweep
+    ebno_dB_range = torch.arange(cfg.snr_min, cfg.snr_max + cfg.snr_step, cfg.snr_step)
+    log.info(
+        f"Eb/N0 range to simulate: from {ebno_dB_range[0]} to {ebno_dB_range[-1]} by step of {cfg.snr_step} dB ({len(ebno_dB_range)} values)"
     )
     log.info(
-        f"Eb/N0 range to simulate: from {ebno_dB_range[0]} to {ebno_dB_range[-1]} by step of {args.snr_step} dB ({len(ebno_dB_range)} values)"
+        f"{cfg.num_batches * cfg.batch_size:,} samples per Eb/N0 value ({cfg.num_batches} batches of {cfg.batch_size} samples per batch)"
     )
-    log.info(
-        f"{args.num_batches * args.batch_size:,} samples per Eb/N0 value ({args.num_batches} batches of {args.batch_size} samples per batch)"
-    )
-    log.info(f"Dataloading will use {args.num_workers} cpus")
-    pathlib.Path(args.output).mkdir(parents=True, exist_ok=True)
-    suffix = "-hdd" if args.hdd else ""
-    output_file = args.output + "/" + pathlib.Path(model_file).stem + suffix + ".csv"
-    log.info(f"Results will be saved to file: {output_file}")
+    log.info(f"Dataloading will use {cfg.num_workers} cpus")
 
-    if args.hdd:
-        if error_space == "message":
-            raise ValueError(
-                "--hdd is only supported for models trained with error_space=codeword"
-            )
-        if code.dmin is None:
-            raise ValueError(
-                "--hdd requires a code with a known dmin (not found in .mat file)"
-            )
-        t = (code.dmin - 1) // 2
+    # Resolve HDD correction capability (t=0 if hdd=false)
+    t = resolve_hdd_t(model, code, cfg.hdd)
+    if cfg.hdd:
         log.info(f"HDD emulation enabled (correction capability t = {t})")
-    else:
-        t = 0
+
+    # Build the output file path
+    pathlib.Path(cfg.output_dir).mkdir(parents=True, exist_ok=True)
+    suffix = "-hdd" if cfg.hdd else ""
+    output_file = cfg.output_dir + "/" + pathlib.Path(model_file).stem + suffix + ".csv"
+    log.info(f"Results will be saved to file: {output_file}")
 
     # Evaluate the model - The results are returned in a list of dicts,
     # using one dict of metrics per Eb/N0 point
@@ -274,9 +259,9 @@ def main() -> None:
         model,
         ebno_dB_range,
         output_file,
-        num_workers=args.num_workers,
-        test_bs=args.batch_size,
-        n_test_batches=args.num_batches,
+        num_workers=cfg.num_workers,
+        test_bs=cfg.batch_size,
+        n_test_batches=cfg.num_batches,
         t=t,
     )
 

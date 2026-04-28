@@ -1,0 +1,11 @@
+# @package _global_
+#
+# Default evaluation preset for the (96,48) QC-LDPC from TUKL (now RPTU)
+
+snr_min: 1.0
+snr_max: 5.5
+snr_step: 0.5
+
+batch_size: 8192
+num_batches: 8192
+num_workers: 8

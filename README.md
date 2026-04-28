@@ -173,22 +173,41 @@ Two checkpoints are saved in the `checkpoints/` run subdirectory: `last.ckpt` (m
 
 ### Evaluate a model
 
-`sbnd-test` evaluates a trained checkpoint through Monte Carlo simulation over a range of Eb/N0 values, reporting **Word Error Rate (WER)** and **Bit Error Rate (BER)** (calculated on the message bits) for each SNR point. The mode (`error_space`) used at training time is read back from the checkpoint, so FER/BER are computed accordingly — see [Decoding modes](#decoding-modes):
+`sbnd-test` evaluates a trained checkpoint through Monte Carlo simulation over a range of Eb/N0 values, reporting **Word Error Rate (WER)** and **Bit Error Rate (BER)** (calculated on the message bits) for each SNR point. The mode (`error_space`) used at training time is read back from the checkpoint, so FER/BER are computed accordingly — see [Decoding modes](#decoding-modes).
+
+Like `sbnd-train`, evaluation is configured via [Hydra](https://hydra.cc/). The base config [`conf/test.yaml`](https://github.com/lebidan/sbnd/blob/main/conf/test.yaml) ships with preset Monte-Carlo simulation defaults, so a first evaluation pass only needs the model checkpoint:
 
 ```
-sbnd-test /path/to/my-model.ckpt --snr_min 1 --snr_max 5 --snr_step 0.5 --num_batches 8192 --batch_size 4096
+sbnd-test model=/path/to/my-model.ckpt
 ```
 
 where `/path/to/my-model.ckpt` should have the form `./log/train/runs/YYYY-MM-DD_HH-MM-SS/checkpoints/<exp-file-name>-<max_epochs>epochs-<wandb-run-name>.ckpt`
 
-Results are saved to a CSV file named after the checkpoint under the output directory (default: [`./log/test/`](https://github.com/lebidan/sbnd/tree/main/log/test)). If the file already exists, new SNR points are appended and deduplicated by Eb/N0 value, so you can extend an evaluation incrementally across multiple runs.
+Any field can be overridden directly on the command line:
+
+```
+sbnd-test model=/path/to/my-model.ckpt snr_min=1 snr_max=5 snr_step=0.5 num_batches=8192 batch_size=4096
+```
+
+For repeated evaluations with the same set of options, group them into a preset under [`conf/eval/`](https://github.com/lebidan/sbnd/tree/main/conf/eval) and select it with `eval=<name>` (e.g. one preset per code):
+
+```
+sbnd-test model=/path/to/my-model.ckpt eval=my-eval-config
+```
+
+> A few evaluation presets for the different codes shipped with SBND are available in [`conf/eval/`](https://github.com/lebidan/sbnd/tree/main/conf/eval). You may to adjust the batch size and number of batches to match your GPU capabilities.
+
+Results are saved to a CSV file named after the checkpoint under the output directory (default: [`./log/test/`](https://github.com/lebidan/sbnd/tree/main/log/test)). If the file already exists, new SNR points are appended; for SNR points that are already present, the new error counts are **accumulated** on top of the previous ones (and WER/BER are recomputed from the cumulative totals), so you can extend an evaluation incrementally across multiple runs and tighten the statistics over time.
 
 | Option | Default | Description |
 | --- | --- | --- |
-| `--snr_min` / `--snr_max` / `--snr_step` | 0.0 / 5.0 / 1.0 | Eb/N₀ range to simulate (dB) |
-| `--batch_size` | 4096 | Test batch size |
-| `--num_batches` | 1024 | Number of batches per SNR point |
-| `--output` | `./log/test` | Output directory for the results CSV |
+| `model` | — (required) | Path to the model checkpoint to evaluate |
+| `snr_min` / `snr_max` / `snr_step` | 0.0 / 5.0 / 1.0 | Eb/N₀ range to simulate (dB) |
+| `batch_size` | 4096 | Test batch size |
+| `num_batches` | 1024 | Number of batches per SNR point |
+| `num_workers` | 8 | Number of workers for dataloading |
+| `hdd` | `false` | Emulate hard-decision decoding (perfect correction if errors ≤ t). Requires a code with known `dmin` and a model trained in `error_space=codeword` |
+| `output_dir` | `./log/test` | Output directory for the results CSV |
 
 ## 🔍 Supported Codes & Decoders
 
@@ -443,13 +462,17 @@ periodic_test_cb:
   every_n_epochs: 100   # or 0 to disable
 ```
 
+> For more comprehensive model performance evaluation including bit-error rate, use the `sbnd-test` command as described in the [Getting Started](#-getting-started) section.
+
 ## 📁 Project Structure
 
 ```
 sbnd/
 ├── conf/
-│   ├── train.yaml              # Base Hydra config (hardware, logging, callbacks, path variables)
-│   └── exp/                    # Experiment configs
+│   ├── train.yaml              # Base Hydra config for training (hardware, logging, callbacks, path variables)
+│   ├── test.yaml               # Base Hydra config for evaluation (Monte-Carlo simulation defaults)
+│   ├── exp/                    # Training experiment configs
+│   └── eval/                   # Evaluation presets
 ├── data/
 │   └── codes/                  # Code definition .mat files (G, H, n, k)
 ├── media/                      # Logo, plots, etc.
