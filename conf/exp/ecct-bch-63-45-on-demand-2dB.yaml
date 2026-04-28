@@ -24,7 +24,6 @@ decoder:
 data:  
   _target_: sbnd.data.SBNDDataModule
   ebno_dB_train: 2.0
-  on_demand: true
   n_train_samples: 1048576  # number of training samples per epoch
   train_bs: 4096
   n_val_samples: 524288

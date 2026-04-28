@@ -162,8 +162,16 @@ def main(cfg: DictConfig) -> None:
     # see https://github.com/pytorch/pytorch/issues/94788
     torch._logging.set_logs(dynamo=logging.ERROR)
 
-    # set seed for reproducibility (if any)
-    if cfg.get("seed"):
+    # Set seed for reproducibility (if any). `workers=True` is required: it
+    # installs a worker_init_fn that gives each DataLoader worker a distinct
+    # derived seed, and Lightning offsets the seed per DDP rank. Together this
+    # guarantees that on-demand training samples are decorrelated across both
+    # workers and ranks (cf. SBNDDataModule docstring).
+    # When no seed is configured, decorrelation still holds: each DDP rank is
+    # launched as an independent subprocess (different OS-entropy seed) and
+    # PyTorch's default DataLoader gives each worker `base_seed + worker_id`.
+    # Reproducibility is lost, but sample independence is preserved.
+    if cfg.get("seed") is not None:
         lit.seed_everything(cfg.seed, workers=True, verbose=False)
         log.info(f"Global seed set to {cfg.seed}")
 

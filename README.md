@@ -8,14 +8,13 @@ Syndrome-Based Neural Decoding
 </h1>
 
 <p align="center">
-
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue)](https://www.python.org/)
 [![PyTorch 2.9+](https://img.shields.io/badge/PyTorch-2.9%2B-orange)](https://pytorch.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://github.com/lebidan/sbnd/blob/main/LICENSE)
 [![Version](https://img.shields.io/badge/version-0.1.0-lightgrey)]()
-
+</p>
+<p align="center">
 [Overview](#-why-sbnd) | [Features](#-features) | [Installation](#-installation) | [Getting Started](#-getting-started) | [Codes & Decoders](#-supported-codes--decoders) | [Configuration](#-configuration-guide) | [Structure](#-project-structure) | [Contributing](#-contributing) | [Acknowledgments](#-acknowledgments)
-
 </p>
 
 **`SBND`** is a PyTorch/Lightning framework for training and evaluating syndrome-based neural decoders for linear error-correcting codes.
@@ -274,54 +273,42 @@ The `codes_dir` variable is defined in [`conf/train.yaml`](https://github.com/le
 
 Training and evaluation data is handled by the [`SBNDDataModule`](https://github.com/lebidan/sbnd/blob/main/src/data.py) class. A training sample is a pair `((|y|,s), e)`, where `(|y|,s)` is the decoder input (received LLR magnitude vector and syndrome) and `e` is the target error pattern. SBND models are trained on noisy observations `y = 1 + w` of the all-zero codeword (all-one BPSK modulated codeword), taking advantage of the fact that SBND decoding is agnostic to the transmitted codeword. On the other hand, model evaluation is conducted on randomly generated codewords.
 
-At present, SBND supports three training data strategies:
+At present, SBND supports two training data strategies, selected by whether `train_file` is set:
 
-#### 1. On-demand generation (`on_demand: true`)
+#### 1. On-demand generation (default, no `train_file`)
 
 Noisy codewords are generated randomly at every training step. The model is exposed to fresh data at each step — no sample is ever repeated. This mode avoids large dataset files and is the simplest way to get started. Note that data augmentation is not applied in this mode, since the data is already unique at every step. The downside is that the model is trained for perfect correction, an unrealistic goal that ultimately hinders WER performance (see our [ICMLCN 2025 paper](https://arxiv.org/abs/2502.10183) for details). In this mode, a training epoch consists of `n_train_samples / train_bs` training steps, or batches.
+
+On-demand mode is selected automatically when `train_file` is omitted; it requires `ebno_dB_train` and a non-zero `n_train_samples`. If `n_val_samples` is not given, validation defaults to 25% of `n_train_samples`. Both `n_train_samples` and `n_val_samples` are rounded down to the nearest multiple of `train_bs` / `val_bs`.
 
 ```yaml
 data:
   _target_: sbnd.data.SBNDDataModule
   ebno_dB_train: 2.0
-  on_demand: true
   n_train_samples: 1048576
   train_bs: 4096
   n_val_samples: 524288
   val_bs: 4096
 ```
 
-#### 2. Pre-computed datasets (`on_demand: false` with `train_file` specified)
+#### 2. Pre-computed datasets (`train_file` specified)
 
-Load training and validation data from user-supplied `.mat` files. Each file must contain a matrix of received words `y` and a matrix of target binary error patterns `e`. The same fixed dataset is reused at each epoch, which gives total control over the training distribution, making it possible to more closely approach Maximum Likelihood decoding performance with [much fewer samples than with on-demand data](https://arxiv.org/abs/2502.10183). If no `val_file` is provided, a validation set is created by random split from the training set. 
+Load training and validation data from user-supplied `.mat` files. Each file must contain a matrix of received words `y` and a matrix of target binary error patterns `e`. The same fixed dataset is reused at each epoch, which gives total control over the training distribution, making it possible to more closely approach Maximum Likelihood decoding performance with [much fewer samples than with on-demand data](https://arxiv.org/abs/2502.10183). If no `val_file` is provided, a validation set is created by random split of the training set — the default split ratio is 75%/25%, overridable with an explicit `n_val_samples`. The training transform (if any) is applied only to the training subset; validation samples are never augmented.
+
+`n_train_samples` defaults to 0, meaning the entire file is used; set it to a positive value to use only the first N rows. `n_val_samples` behaves identically when loading from `val_file`.
 
 The `data_dir` variable defaults to `./data/datasets` and is defined in [`conf/train.yaml`](https://github.com/lebidan/sbnd/blob/main/conf/train.yaml).
 
 ```yaml
 data:
   _target_: sbnd.data.SBNDDataModule
-  ebno_dB_train: 2.0
-  on_demand: false
   train_file: ${data_dir}/bch-63-45/train-ml-4M-2dB.mat
   train_bs: 4096
   val_file: ${data_dir}/bch-63-45/val-ml-512K-2dB.mat
   val_bs: 4096
 ```
 
-#### 3. Random fixed dataset (`on_demand: false` without `train_file` specified)
-
-A random training set is generated once at the start of training and reused at each epoch. This is a middle ground: no dataset files needed, but the training data remains fixed. A random validation set is also generated unless `val_file` is provided. This configuration usually results in slightly faster convergence than with on-demand data, but with the same downside of training for perfect correction, which is ultimately unachievable.
-
-```yaml
-data:
-  _target_: sbnd.data.SBNDDataModule
-  ebno_dB_train: 2.0
-  on_demand: false
-  n_train_samples: 1048576
-  train_bs: 4096
-  n_val_samples: 524288
-  val_bs: 4096
-```
+**Forbidden combinations.** Setting `val_file` without `train_file` is rejected at construction time (on-demand mode does not load validation from a file). On-demand mode silently ignores `transform`, since each batch is already unique.
 
 #### Pre-computed dataset format and download
 
@@ -347,7 +334,7 @@ Additional datasets used to produce the results in our [ICMLCN 2025 paper](https
 
 #### Data augmentation
 
-For modes 2 and 3 (fixed datasets), data augmentation can be enabled via the `transform` option. This applies random permutations from the code's automorphism group to each batch, effectively multiplying the number of distinct training examples. At present, the following code-specific transforms are available in [`transforms.py`](https://github.com/lebidan/sbnd/blob/main/src/transforms.py):
+For pre-computed datasets (mode 2 above), data augmentation can be enabled via the `transform` option. This applies random permutations from the code's automorphism group to each batch, effectively multiplying the number of distinct training examples. At present, the following code-specific transforms are available in [`transforms.py`](https://github.com/lebidan/sbnd/blob/main/src/transforms.py):
 
 * [`BCHPerms`](https://github.com/lebidan/sbnd/blob/main/src/transforms.py) — cyclic × Frobenius permutations for BCH codes (works with extended BCH too by setting `is_extended = true`)
 * [`QCPerms`](https://github.com/lebidan/sbnd/blob/main/src/transforms.py) — quasi-cyclic shift permutations for QC-LDPC codes (requires the circulant size `Zc`)
@@ -422,6 +409,31 @@ We recommend using `bf16-mixed` precision for faster training without loss of ac
   ```
 
 **Logging** — CSV logging is always enabled. [Weights & Biases](https://wandb.ai) logging is automatically activated when the `wandb` package is installed. To use W&B in offline mode, set `offline: true` in your experiment config or pass `offline=true` on the command line.
+
+### Test evaluation
+
+`sbnd-train` automatically runs a final test evaluation on the best checkpoint at the end of every training run (`trainer.test` is called after `trainer.fit`). Test data is always generated on-the-fly at each Eb/N0 value listed in `ebno_dB_test`, and the following metrics are reported and logged for each SNR point:
+
+- `test/loss` — cross-entropy loss on the test set
+- `test/acc` — fraction of correctly predicted error patterns (word accuracy)
+- `test/err` — word error rate (WER = 1 − acc)
+
+The test SNR range, sample count, and batch size are configured under the `data:` block of the experiment config:
+
+```yaml
+data:
+  ebno_dB_test: [2.0, 3.0, 4.0]   # one test set per SNR value
+  n_test_samples: 2097152           # 2M samples per SNR point (default)
+  test_bs: 4096
+```
+
+`n_test_samples` is rounded down to the nearest multiple of `test_bs`. In addition, the `PeriodicTest` callback runs a lightweight interim test evaluation every `every_n_epochs` epochs (default: 50) during training, logging results under the `periodic_test/` namespace. This allows monitoring test-set progress without waiting for the full training run to complete. The interval can be changed in the experiment config:
+
+```yaml
+periodic_test_cb:
+  _target_: sbnd.train.PeriodicTest
+  every_n_epochs: 100   # or 0 to disable
+```
 
 ## 📁 Project Structure
 

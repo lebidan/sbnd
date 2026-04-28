@@ -23,8 +23,6 @@ decoder:
 
 data:  
   _target_: sbnd.data.SBNDDataModule
-  ebno_dB_train: 3.0
-  on_demand: false
   train_file: ${data_dir}/bch-31-21/train-ml-perm4-4M-3dB.mat
   train_bs: 4096
   val_file: ${data_dir}/bch-31-21/val-ml-512K-3dB.mat

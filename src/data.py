@@ -5,7 +5,7 @@ import h5py  # type: ignore[import-untyped]
 from typing import Iterable, Callable, cast
 from omegaconf import OmegaConf, ListConfig
 from torch import Tensor
-from torch.utils.data import DataLoader, Dataset, random_split
+from torch.utils.data import DataLoader, Dataset, Subset, random_split
 from lightning import LightningDataModule
 from scipy.io import loadmat  # type: ignore[import-untyped]
 from .codes import LinearCode
@@ -147,7 +147,7 @@ class SBNDDataset(Dataset):
     from the pair of tensors (y, e).
 
     This is essentially a wrapper around Pytorch TensorDataset:
-    - https://github.com/pytorch/pytorch/blob/v2.6.0/torch/utils/data/dataset.py#L193
+    - https://github.com/pytorch/pytorch/blob/main/torch/utils/data/dataset.py#L189
 
     If `transform` is not None, the specified transform is applied to the data at dataloading.
     """
@@ -199,25 +199,21 @@ class SBNDDataModule(LightningDataModule):
     Training/validation data never include rx words with a zero syndrome.
     The training/validation data logic depends on the arguments passed to `__init__`.
 
-    If `on_demand` is True (default is False):
+    If `train_file` is not None:
+        - training will use the first `n_train_samples` samples from `train_file`, or the entire file if `n_train_samples` is 0 (default)
+        - if `transform` is not None: the specified transform, e.g. cyclic permutation, will be applied to augment the training data
+        - if `val_file` is not None: validation will use the first `n_val_samples` samples from `val_file`, or the entire file if `n_val_samples` is 0 (default)
+        - else (`val_file` is None): a validation set of `n_val_samples` will be created by random split of the training set, whose size `n_train_samples` will be reduced accordingly
+          Default split ratio is 75%/25% unless `n_val_samples` is explicitly specified
+
+    If `train_file` is None: defaults to on-demand data generation
         - training and validation will use on-demand data
         - data generation is performed at the Eb/N0 value `ebno_dB_train`
-        - `n_train_samples` will be used for training
-        - `n_val_samples` will be used for validation
+        - `n_train_samples` will be used for training (must be specified explicitely)
+        - `n_val_samples` will be used for validation (default value = 25% of `n_train_samples`)
         - `n_train_samples` (resp. `n_val_samples`) will be rounded down to the nearest multiple of `train_bs`
           (resp. `val_bs`) if necessary, as on-demand data generation requires data size to be a multiple of batch size
         - no data augmentation will be applied, even if `transform` is not None
-
-    Else if `train_file` is not None:
-        - training will use the first `n_train_samples` samples from `train_file`, or the entire file if `n_train_samples` is 0
-        - if `transform` is not None: the specified transform, e.g. cyclic permutation, will be applied to augment the training data
-        - if `val_file` is not None: validation will use the first `n_val_samples` samples from `val_file`, or the entire file if `n_val_samples` is 0
-        - else (`val_file` is None): a validation set of `n_val_samples` will be created by random split of the training set, whose size `n_train_samples` will be reduced accordingly
-
-    Else if `train_file` is None:
-        - a fixed random training set of `n_train_samples` will be created at the SNR value `ebno_dB_train`
-        - if `val_file` is not None: validation will use the first `n_val_samples` samples from `val_file`, or the entire file if `n_val_samples` is 0
-        - else (`val_file` is None): a fixed random validation set of `n_val_samples` will be created at the SNR value `ebno_dB_train`
 
     Test data is always generated on the fly, and can include rx words with a zero syndrome.
     It is possible to pass a list of Eb/N0 values to `ebno_dB_test`, in which case different test datasets will be
@@ -225,6 +221,29 @@ class SBNDDataModule(LightningDataModule):
     Here also `n_test_samples` will be rounded down to the nearest multiple of `test_bs` if required.
 
     Extra arguments can be passed to pytorch DataLoader, e.g. `num_workers`, through the `extra_args` argument.
+
+    Reproducibility and sample-correlation caveats (on-demand mode):
+        On-demand training, validation and test batches are produced by the global
+        `torch` RNG inside `generate_random_*_batch`. Sample identity therefore
+        depends entirely on the RNG state of each DataLoader worker process and of
+        each DDP rank. Two independent failure modes exist:
+            1. Workers within a rank drawing from the same RNG stream → duplicated
+               samples across workers (single-GPU, multi-worker).
+            2. DDP ranks drawing from the same RNG stream → duplicated samples
+               across GPUs, which silently negates the benefit of multi-GPU
+               training without raising any error.
+        Both are avoided by calling
+            `lightning.pytorch.seed_everything(seed, workers=True)`
+        once before `Trainer.fit` / `Trainer.test`. The `workers=True` flag installs
+        a `worker_init_fn` that reseeds each worker with `base_seed + worker_id`,
+        and Lightning additionally offsets `base_seed` per DDP rank. If no seed is
+        configured at all, decorrelation is still preserved in practice because
+        each DDP rank is launched as a fresh subprocess (independent OS-entropy
+        seed) and PyTorch's default DataLoader assigns each worker a distinct
+        derived seed; only run-to-run reproducibility is lost.
+        The dangerous misuse to avoid is calling `seed_everything(seed)` *without*
+        `workers=True`: ranks are then offset but workers within a rank share an
+        identical RNG stream, producing correlated batches.
     """
 
     train_ds: Dataset
@@ -235,7 +254,7 @@ class SBNDDataModule(LightningDataModule):
     def __init__(
         self,
         code: LinearCode,
-        ebno_dB_train: float = 0.0,
+        ebno_dB_train: float | None = None,
         train_file: str | None = None,
         n_train_samples: int = 0,
         train_bs: int = 1024,
@@ -245,13 +264,37 @@ class SBNDDataModule(LightningDataModule):
         ebno_dB_test: float | Iterable[float] = 0.0,
         n_test_samples: int = 2**20,
         test_bs: int = 1024,
-        on_demand: bool = False,
         transform: Callable | None = None,
         error_space: str = "codeword",
         extra_args: dict | None = None,
     ) -> None:
         super().__init__()
+
         self.code = code
+        log.info(f"Instantiating an SBNDDataModule for the {code} code")
+
+        # check arguments
+        if train_file is None:
+            self.on_demand = True
+            log.info("Training uses on-demand data")
+            if ebno_dB_train is None:
+                raise ValueError(
+                    "A training Eb/N0 value ebno_dB_train must be specified"
+                )
+            if n_train_samples == 0:
+                raise ValueError(
+                    "The number of training samples n_train_samples must be specified"
+                )
+            if val_file is not None:
+                raise ValueError(
+                    "val_file cannot be specified without train_file "
+                    "(on-demand mode does not support validation set files)"
+                )
+        else:
+            self.on_demand = False
+            log.info(f"Training uses the fixed dataset {train_file}")
+
+        # store arguments
         self.ebno_dB_train = ebno_dB_train
         self.train_file, self.n_train_samples, self.train_bs = (
             train_file,
@@ -261,19 +304,20 @@ class SBNDDataModule(LightningDataModule):
         self.val_file, self.n_val_samples, self.val_bs = val_file, n_val_samples, val_bs
         self.ebno_dB_test = ebno_dB_test  # type: ignore[assignment]
         self.n_test_samples, self.test_bs = n_test_samples, test_bs
-        self.on_demand = on_demand
         self.transform = transform(code) if transform is not None else None
         self.error_space = error_space
         self.extra_args = extra_args if extra_args is not None else {}
         self.save_hyperparameters(
             logger=False
         )  # ensures init params will be stored in ckpt
+
         # convert ebno_dB_test to python list
         if isinstance(ebno_dB_test, ListConfig):
             self.ebno_dB_test = cast(list[float], OmegaConf.to_object(ebno_dB_test))
+        elif isinstance(ebno_dB_test, (list, tuple)):
+            self.ebno_dB_test = [float(v) for v in ebno_dB_test]
         else:
             self.ebno_dB_test = [cast(float, ebno_dB_test)]
-        log.info(f"Instantiating an SBNDDataModule for the {code} code")
 
     def _load_ds(
         self, mat_file: str, n_samples: int, train: bool = False
@@ -296,30 +340,88 @@ class SBNDDataModule(LightningDataModule):
             n_samples,
         )
 
-    def _random_ds(
-        self, ebno_dB: float, n_samples: int, train: bool = False
-    ) -> SBNDDataset:
-        """Generate a random dataset of n_samples samples at the specified Eb/N0 value, in dB"""
-        if train:
-            y, e = generate_random_training_batch(self.code, ebno_dB, n_samples)
-            transform = self.transform
-        else:
-            y, e = generate_random_test_batch(self.code, ebno_dB, n_samples)
-            transform = None
-        return SBNDDataset(self.code, y, e, transform, self.error_space)
-
     def setup(self, stage: str | None = None) -> None:
+
+        if stage in ("validate", "predict"):
+            raise NotImplementedError(
+                f"SBNDDataModule does not support stage={stage!r}; only 'fit' and 'test' are implemented"
+            )
 
         if stage == "fit":
 
-            # special case for on-demand setup
-            if self.on_demand:
+            # setup training set
+            if self.train_file is not None:
 
+                loaded_ds, self.n_train_samples = self._load_ds(
+                    self.train_file, self.n_train_samples, train=True
+                )
+                self.train_ds = loaded_ds
+                log.info(
+                    f"Loaded {self.n_train_samples} samples from the training set file: {self.train_file}"
+                )
+
+                if self.val_file is not None:
+
+                    # load validation set from user-specified file
+                    self.val_ds, self.n_val_samples = self._load_ds(
+                        self.val_file, self.n_val_samples, train=False
+                    )
+                    log.info(
+                        f"Loaded {self.n_val_samples} samples from the validation set file: {self.val_file}"
+                    )
+
+                else:
+
+                    if self.n_val_samples == 0:
+                        # validation set size defaults to 25% of training set
+                        self.n_val_samples = self.n_train_samples // 4
+
+                    if self.n_val_samples >= self.n_train_samples:
+                        raise ValueError(
+                            f"n_val_samples ({self.n_val_samples}) must be < the number of loaded "
+                            f"training samples ({self.n_train_samples})"
+                        )
+                    self.n_train_samples -= self.n_val_samples
+                    train_subset, val_subset = random_split(
+                        loaded_ds, [self.n_train_samples, self.n_val_samples]
+                    )
+                    # build a sibling dataset that shares the same (y, e) tensor storage
+                    # but has no transform, so validation samples are not augmented
+                    val_base = SBNDDataset(
+                        self.code,
+                        loaded_ds.y,
+                        loaded_ds.e,
+                        transform=None,
+                        error_space=self.error_space,
+                    )
+                    self.val_ds = Subset(val_base, list(val_subset.indices))
+                    self.train_ds = train_subset
+                    split_ratio = self.n_train_samples / (
+                        self.n_train_samples + self.n_val_samples
+                    )
+                    log.info(
+                        f"Created a {100*split_ratio:.0f}%/{100*(1-split_ratio):.0f}% random split with"
+                        + f" {self.n_train_samples} samples for training and {self.n_val_samples} samples for validation"
+                    )
+
+                return
+
+            else:
+
+                # defaults to on-demand setup
+                assert self.on_demand
+                # __init__ guarantees ebno_dB_train is set whenever on_demand is True
+                assert self.ebno_dB_train is not None
+
+                # create on-demand training set
                 n_train_batches = self.n_train_samples // self.train_bs
+                if n_train_batches == 0:
+                    raise ValueError(
+                        f"n_train_samples ({self.n_train_samples}) must be >= train_bs ({self.train_bs})"
+                    )
                 self.n_train_samples = (
                     n_train_batches * self.train_bs
                 )  # adjust samples count in case of rounding
-                assert self.n_train_samples > 0
                 self.train_ds = OnDemandDataset(
                     self.code,
                     self.ebno_dB_train,
@@ -332,9 +434,16 @@ class SBNDDataModule(LightningDataModule):
                     f"Created an on-demand training set of {self.n_train_samples} true error patterns at Eb/N0={self.ebno_dB_train} dB"
                 )
 
+                # create on-demand validation set
+                if self.n_val_samples == 0:
+                    # validation set size defaults to 25% of training set
+                    self.n_val_samples = self.n_train_samples // 4
                 n_val_batches = self.n_val_samples // self.val_bs
+                if n_val_batches == 0:
+                    raise ValueError(
+                        f"n_val_samples ({self.n_val_samples}) must be >= val_bs ({self.val_bs})"
+                    )
                 self.n_val_samples = n_val_batches * self.val_bs
-                assert self.n_val_samples > 0
                 self.val_ds = OnDemandDataset(
                     self.code,
                     self.ebno_dB_train,
@@ -347,72 +456,17 @@ class SBNDDataModule(LightningDataModule):
                     f"Created an on-demand validation set of {self.n_val_samples} true error patterns at Eb/N0={self.ebno_dB_train} dB"
                 )
 
-                return
-
-            # setup training set
-            if self.train_file is not None:
-
-                self.train_ds, self.n_train_samples = self._load_ds(
-                    self.train_file, self.n_train_samples, train=True
-                )
-                log.info(
-                    f"Loaded {self.n_train_samples} samples from the training set file: {self.train_file}"
-                )
-
-                if self.val_file is None and self.n_val_samples > 0:
-                    # split training set to create validation set with the requested number of samples
-                    assert self.n_val_samples < self.n_train_samples
-                    self.n_train_samples -= self.n_val_samples
-                    self.train_ds, self.val_ds = random_split(
-                        self.train_ds, [self.n_train_samples, self.n_val_samples]
-                    )
-                    split_ratio = self.n_train_samples / (
-                        self.n_train_samples + self.n_val_samples
-                    )
-                    log.info(
-                        f"Created a {100*split_ratio:.0f}%/{100*(1-split_ratio):.0f}% random split with"
-                        + f" {self.n_train_samples} samples for training and {self.n_val_samples} samples for validation"
-                    )
-                    return
-
-            else:
-
-                assert self.n_train_samples > 0
-                log.info("Creating a random training set...")
-                self.train_ds = self._random_ds(
-                    self.ebno_dB_train, self.n_train_samples, train=True
-                )
-                log.info(
-                    f"Created a random training set of {self.n_train_samples} true error patterns at Eb/N0={self.ebno_dB_train} dB"
-                )
-
-            # setup validation set
-            if self.val_file is not None:
-
-                self.val_ds, self.n_val_samples = self._load_ds(
-                    self.val_file, self.n_val_samples, train=False
-                )
-                log.info(
-                    f"Loaded {self.n_val_samples} samples from the validation set file: {self.val_file}"
-                )
-
-            else:
-
-                assert self.n_val_samples > 0
-                log.info("Creating a random validation set...")
-                self.val_ds = self._random_ds(
-                    self.ebno_dB_train, self.n_val_samples, train=True
-                )
-                log.info(
-                    f"Created a random validation set of {self.n_val_samples} true error patterns at Eb/N0={self.ebno_dB_train} dB"
-                )
+            return
 
         if stage == "test":
 
             log.info("Creating the test set(s)...")
             n_test_batches = self.n_test_samples // self.test_bs
+            if n_test_batches == 0:
+                raise ValueError(
+                    f"n_test_samples ({self.n_test_samples}) must be >= test_bs ({self.test_bs})"
+                )
             self.n_test_samples = n_test_batches * self.test_bs
-            assert self.n_test_samples > 0
 
             self.test_ds = []
             for ebno_dB in self.ebno_dB_test:  # type: ignore[union-attr]
