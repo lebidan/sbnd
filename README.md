@@ -235,8 +235,6 @@ tts:
     is_extended: false                    # set true for eBCH codes
 ```
 
-The `_partial_: true` pattern lets Hydra inject the loaded `code` into the transform at decode time, mirroring the training data-augmentation setup (see [Data augmentation](#data-augmentation)).
-
 Both TTS variants can be activated either by adding the block above to a [`conf/eval/`](https://github.com/lebidan/sbnd/tree/main/conf/eval) preset or directly on the command line:
 
 ```
