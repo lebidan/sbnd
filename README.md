@@ -42,7 +42,7 @@ Syndrome-based neural decoding is a promising approach for soft-decision decodin
 
 <img alt="BCH(63,45,7) performance" src="https://raw.githubusercontent.com/lebidan/sbnd/main/media/fer_63_45.png?raw=true" width=90%>
 
-- Training the original ECCT with SBND brings ~two-order of magnitude FER improvement
+- Training the original ECCT with SBND brings ~two-order of magnitude WER improvement
 - Same or better performance with half the number of parameters when switching to our recurrent ECCT model
 - Performance is within 0.2 dB of MLD and matches Chase-2 decoding with 64 test patterns
 
@@ -54,10 +54,10 @@ Configuration files for the above experiments: [original/improved ECCT training]
 
 <img alt="eBCH(32,16,8) performance" src="https://raw.githubusercontent.com/lebidan/sbnd/main/media/fer_32_16.png?raw=true" width=90%>
 
-- FER performance within 0.2 dB of MLD and comparable to Chase-2 decoding with 64 test patterns
+- WER performance within 0.2 dB of MLD and comparable to Chase-2 decoding with 64 test patterns
 - Outperforms the original ECCT and CrossMPT decoders with 8x fewer parameters
 
-Note: The comparison between results for the (31,16,7) and (32,16,8) codes is reasonable as both codes have very close MLD performance down to FER = 1E-4. The extended code progressively takes over at high SNRs. Compare with the results in Table 3 and Fig. 11 from [the CrossMPT ICLR 2025 paper](https://openreview.net/forum?id=gFvRRCnQvX).
+Note: The comparison between results for the (31,16,7) and (32,16,8) codes is reasonable as both codes have very close MLD performance down to WER = 1E-4. The extended code progressively takes over at high SNRs. Compare with the results in Table 3 and Fig. 11 from [the CrossMPT ICLR 2025 paper](https://openreview.net/forum?id=gFvRRCnQvX).
 
 Configuration file to reproduce the rECCT results: [here](https://github.com/lebidan/sbnd/blob/main/conf/exp/recct-ebch-32-16-ml-16m-3dB.yaml)
 
@@ -67,7 +67,7 @@ Configuration file to reproduce the rECCT results: [here](https://github.com/leb
 
 <img alt="QC-LDPC(96,48,10) performance" src="https://raw.githubusercontent.com/lebidan/sbnd/main/media/fer_96_48.png?raw=true" width=90%>
 
-- High-SNR FER performance within 1.0 dB or less of MLD (but still *much room left for improvement*)
+- High-SNR WER performance within 1.0 dB or less of MLD (but still *much room left for improvement*)
 - Matches or outperforms BP with 100 iterations
 
 This very nice and strong short quasi-cyclic LDPC code was designed at [RPTU](https://rptu.de/channel-codes/channel-codes-database/more-ldpc-codes#c94700) (formerly TU Kaiserslautern-Landau) and used as example in their [Saturated Min-Sum decoding](https://www.date-conference.com/proceedings-archive/2016/pdf/0760.pdf) DATE 2016 paper. 
@@ -249,9 +249,9 @@ To implement your own decoder, inherit from `BaseDecoder` and use [`src/mocked.p
 
 SBND supports two decoding modes, selected via the shared `error_space` parameter on both the decoder and the datamodule (they must agree, and a mismatch is caught at `trainer.fit` start):
 
-1. **Codeword-level decoding** (`error_space: "codeword"`, default) — the standard SBND setup. The decoder is trained to predict the full n-bit error pattern `e_cw = c - c_hat` where `c` is the transmitted codeword and `c_hat` is the decoder decision on `c`.. Evaluation reports the **FER on the decoded codeword** and the **BER on the decoded message**, with the codeword-to-message mapping inverted via `Ginv` when the code is non-systematic.
+1. **Codeword-level decoding** (`error_space: "codeword"`, default) — the standard SBND setup. The decoder is trained to predict the full n-bit error pattern `e_cw = c - c_hat` where `c` is the transmitted codeword and `c_hat` is the decoder decision on `c`.. Evaluation reports the **WER on the decoded codeword** and the **BER on the decoded message**, with the codeword-to-message mapping inverted via `Ginv` when the code is non-systematic.
 
-2. **Message-level decoding** (`error_space: "message"`), which we abbreviate as **iSBND** (information-based SBND), proposed in [De Boni Rovella & Benammar, GLOBECOM 2023](https://arxiv.org/abs/2402.13948). The decoder directly estimates the k-bit error pattern on the information message, computed as `e_msg = Ginv · e_cw`. This mode is particularly well-suited to non-systematic codes, but can also bring a small FER gain on systematic codes: it is generally slightly easier for the model to learn the partial error pattern restricted to the first or last k bits of the codeword (the message part), than the full n-bit error pattern. For models trained in iSBND mode, evaluation reports both **FER and BER on the decoded message**.
+2. **Message-level decoding** (`error_space: "message"`), which we abbreviate as **iSBND** (information-based SBND), proposed in [De Boni Rovella & Benammar, GLOBECOM 2023](https://arxiv.org/abs/2402.13948). The decoder directly estimates the k-bit error pattern on the information message, computed as `e_msg = Ginv · e_cw`. This mode is particularly well-suited to non-systematic codes, but can also bring a small WER gain on systematic codes: it is generally slightly easier for the model to learn the partial error pattern restricted to the first or last k bits of the codeword (the message part), than the full n-bit error pattern. For models trained in iSBND mode, evaluation reports both **WER and BER on the decoded message**.
 
 Both the decoder and the datamodule default to `"codeword"`, so standard SBND experiments need no extra config. To switch to iSBND mode, set `error_space: "message"` on both the `decoder:` and `data:` blocks of your experiment config. See for example this [Reed-Muller decoding experiment](https://github.com/lebidan/sbnd/blob/main/conf/exp/recct-rm-32-16-ml-4m-3dB.yaml).
 

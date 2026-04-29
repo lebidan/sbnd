@@ -17,9 +17,9 @@ This document describes how to evaluate a trained SBND model with `sbnd-test`. I
 
 ## 1. Basic evaluation
 
-`sbnd-test` evaluates a trained checkpoint through Monte-Carlo simulation over a configurable range of Eb/N0 values, reporting **Word Error Rate (WER)** and **Bit Error Rate (BER)** at each SNR point. The decoding mode (`error_space`) used at training time is read back from the checkpoint, so FER/BER are computed accordingly — see [Decoding modes](../README.md#decoding-modes) in the README, or the table below for a quick reference.
+`sbnd-test` evaluates a trained checkpoint through Monte-Carlo simulation over a configurable range of Eb/N0 values, reporting **Word Error Rate (WER)** and **Bit Error Rate (BER)** at each SNR point. The decoding mode (`error_space`) used at training time is read back from the checkpoint, so WER/BER are computed accordingly — see [Decoding modes](../README.md#decoding-modes) in the README, or the table below for a quick reference.
 
-| `error_space` | FER calculated on | BER calculated on |
+| `error_space` | WER calculated on | BER calculated on |
 | --- | --- | --- |
 | `codeword` | decoded codeword | decoded message |
 | `message` | decoded *message* | decoded message |
