@@ -5,7 +5,6 @@ abstract: "A PyTorch/Lightning framework for training and evaluating syndrome-ba
 authors:
   - family-names: "Le Bidan"
     given-names: "Raphaël"
-    email: raphael.lebidan@imt-atlantique.fr
     affiliation: "IMT Atlantique, Brest, France"
     orcid: "https://orcid.org/0000-0002-0355-0679"    
 type: software
