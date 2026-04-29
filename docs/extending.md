@@ -19,7 +19,7 @@ SBND decoders share a common abstract base class, [`BaseDecoder`](../src/decoder
 
 The minimal working example shipped with SBND is [`MockedDecoder`](../src/mocked.py): a single linear layer mapping the concatenation of the input magnitude and syndrome vectors to the predicted error pattern. We recommend using it as a starting template.
 
-### The `BaseDecoder` contract
+### The `BaseDecoder` interface
 
 A decoder consumes the channel-matched magnitude vector `ym` of shape `(B, n)` and the bipolar syndrome `s` of shape `(B, m)`, and returns LLR-like logits for the predicted error pattern. The output shape depends on the `error_space` argument — see below.
 

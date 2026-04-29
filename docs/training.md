@@ -23,9 +23,11 @@ This document is the reference guide for configuring and running training jobs w
 
 Training is orchestrated by [`SBNDLitModule`](../src/model.py), a PyTorch Lightning module wrapper around an SBND decoder. The decoder architecture to train is passed as a constructor argument. SBND models are trained in a supervised manner to minimize the average binary cross-entropy between the predicted and target error patterns. The two main metrics monitored during training are the **loss** and the **accuracy** (the fraction of correctly predicted error patterns).
 
-Training is configured with [Hydra](https://hydra.cc). The base config [`conf/train.yaml`](../conf/train.yaml) defines defaults for hardware, logging, callbacks, and path variables such as `codes_dir` (default: `./data/codes`). Experiment configs under [`conf/exp/`](../conf/exp) override what they need, following the naming convention `<decoder>-<code>-<data_mode>-<dataset_size>-<snr>[-aug].yaml`. The `dev-test-mocked` experiment is an exception: it serves as a quick sanity check and is the default when no experiment is specified.
+> Despite considerable efforts and experiments with many different loss functions and penalty terms, including [the soft syndrome penalty from Lugosh & Gross](https://arxiv.org/abs/1810.10902) or the [FER loss from Xiao et al.](https://arxiv.org/abs/2105.04118), we have not yet found a suitable loss function that works as consistently well across codes and decoder models as the standard BCE while better optimizing for FER. We'd love to hear from you if you have any suggestions!
 
-We recommend starting from one of the shipped examples in [`conf/exp/`](../conf/exp) and adapting it to your needs. Each training experiment is paired with a model performance evaluation log file in [`log/test/`](../log/test).
+Training is configured with [Hydra](https://hydra.cc). The base config [`conf/train.yaml`](../conf/train.yaml) defines defaults for hardware, logging, callbacks, and path variables such as `codes_dir` (default: `./data/codes`). Experiment configs under [`conf/exp/`](../conf/exp) override what they need, following the naming convention `<decoder>-<code>-<data_mode>-<dataset_size>-<snr>[-aug].yaml`. The `dev-test-mocked` experiment serves as a quick sanity check and is the default when no experiment is specified.
+
+> We recommend starting from one of the shipped examples in [`conf/exp/`](../conf/exp) and adapting it to your needs. Each training experiment is paired with a model performance evaluation log file in [`log/test/`](../log/test).
 
 ## Code
 
@@ -43,7 +45,9 @@ The `codes_dir` variable is defined in [`conf/train.yaml`](../conf/train.yaml) a
 
 Training and evaluation data are handled by the [`SBNDDataModule`](../src/data.py) class. A training sample is a pair `((|y|, s), e)`, where `(|y|, s)` is the decoder input (received LLR magnitude vector and bipolar syndrome) and `e` is the target error pattern. SBND models are trained on noisy observations `y = 1 + w` of the all-zero codeword (the all-one BPSK-modulated codeword), exploiting the fact that SBND decoding is agnostic to the transmitted codeword. Model evaluation, in contrast, is conducted on randomly drawn codewords.
 
-SBND currently supports two training data strategies, selected by whether `train_file` is set.
+> Important note: all the codebase assumes the following binary-to-bipolar BPSK symbol mapping: `0` -> `+1`, `1` -> `-1`.
+
+SBND currently supports two training data strategies, selected by whether a training dataset file is specified (variable `train_file` set) or not (the default).
 
 ### On-demand generation
 
@@ -63,7 +67,7 @@ data:
 
 ### Pre-computed datasets
 
-When `train_file` is specified, training and validation data are loaded from user-supplied `.mat` files. Each file must contain a matrix of received words `y` and a matrix of target binary error patterns `e`. The same fixed dataset is reused at each epoch, which gives total control over the training distribution. With well-chosen samples, this allows approaching Maximum Likelihood decoding performance with [significantly fewer training samples than on-demand data](https://arxiv.org/abs/2502.10183).
+When `train_file` is specified, training and validation data are loaded from user-supplied `.mat` dataset files. Each file must contain a matrix of received words `y` and a matrix of target binary error patterns `e`. The same fixed dataset is reused at each epoch, which gives total control over the training distribution. With well-chosen samples, this allows approaching Maximum Likelihood decoding performance with [significantly fewer training samples than on-demand data](https://arxiv.org/abs/2502.10183).
 
 If no `val_file` is provided, a validation set is created by randomly splitting the training set. The default split ratio is 75% / 25%, overridable by setting `n_val_samples` explicitly. The training transform, if any, is applied only to the training subset; validation samples are never augmented.
 

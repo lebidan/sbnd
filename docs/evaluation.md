@@ -1,6 +1,6 @@
 # Evaluating a model
 
-This document describes how to evaluate a trained SBND model with `sbnd-test`. It is organized in three sections of increasing sophistication: the basic Monte-Carlo SNR sweep, the optional hard-decision decoding (HDD) emulation used as a sanity check, and the test-time scaling (TTS) variants that trade extra inference compute for lower error rates.
+This document describes how to evaluate a trained SBND model with `sbnd-test`. It is organized in three sections: the basic Monte-Carlo SNR sweep to measure WER and BER, the optional hard-decision decoding (HDD) emulation used as a cheap post-filter, and the test-time scaling (TTS) variants that trade extra inference compute for lower error rates.
 
 **See also:** [README](../README.md#-getting-started) · [Training a model](training.md) · [Extending SBND](extending.md)
 
@@ -17,7 +17,12 @@ This document describes how to evaluate a trained SBND model with `sbnd-test`. I
 
 ## 1. Basic evaluation
 
-`sbnd-test` evaluates a trained checkpoint through Monte-Carlo simulation over a configurable range of Eb/N0 values, reporting **Word Error Rate (WER)** and **Bit Error Rate (BER)** at each SNR point. The decoding mode (`error_space`) used at training time is read back from the checkpoint, so FER/BER are computed accordingly — see [Decoding modes](../README.md#decoding-modes) in the README.
+`sbnd-test` evaluates a trained checkpoint through Monte-Carlo simulation over a configurable range of Eb/N0 values, reporting **Word Error Rate (WER)** and **Bit Error Rate (BER)** at each SNR point. The decoding mode (`error_space`) used at training time is read back from the checkpoint, so FER/BER are computed accordingly — see [Decoding modes](../README.md#decoding-modes) in the README, or the table below for a quick reference.
+
+| `error_space` | FER calculated on | BER calculated on |
+| --- | --- | --- | --- |
+| `codeword` | decoded codeword | decoded message |
+| `message` | decoded *message* | decoded message |
 
 Like `sbnd-train`, evaluation is configured with [Hydra](https://hydra.cc/). The base config [`conf/test.yaml`](../conf/test.yaml) ships with sensible Monte-Carlo defaults, so a first evaluation pass requires only the model checkpoint:
 
@@ -63,7 +68,7 @@ The active TTS strategy and the HDD flag are reflected in the CSV filename suffi
 
 ## 2. Hard-decision decoding emulation
 
-Setting `hdd=true` enables a hard-decision decoding emulation in which any prediction is declared successful as soon as the number of bit errors in the channel error pattern is at most `t = ⌊(d_min − 1) / 2⌋`, the bounded-distance correction radius of the code. This produces the textbook bound for the FER of a hard-decision decoder operating at the binary-symmetric-channel equivalent of the AWGN channel, and serves as a useful sanity reference for soft-decision results.
+Setting `hdd=true` enables a hard-decision decoding emulation in which any prediction is declared successful as soon as the number of bit errors in the error pattern inferred by the SBND model is at most `t = ⌊(d_min − 1) / 2⌋`, the bounded-distance correction radius of the code. 
 
 HDD emulation requires:
 
@@ -78,13 +83,13 @@ Output: results are written to `<model>-hdd.csv`. HDD is orthogonal to TTS and m
 
 ## 3. Test-time scaling
 
-Beyond the no-TTS baseline (one forward pass per sample, the default), `sbnd-test` supports two test-time scaling (TTS) variants that exchange additional inference compute for lower error rates. The two variants are complementary: **self-boosting** is a sequential strategy in which the model iterates over its own predictions, while **test-time augmentation** is a parallel strategy in which the model is run on multiple equivalent views of each received word obtained via code automorphisms. Both are implemented in [`src/tts.py`](../src/tts.py).
+Beyond the standard decoding mode (one forward pass per sample, the default), `sbnd-test` supports two test-time scaling (TTS) variants that exchange additional inference compute for lower error rates. The two variants are complementary: **self-boosting** is a sequential strategy in which the model iterates over its own predictions, while **test-time augmentation** is a parallel strategy in which the model is run on multiple equivalent views of each received word obtained via code automorphisms. Both are implemented in [`src/tts.py`](../src/tts.py).
 
 Both TTS variants require a model trained in `error_space=codeword`, since they rely on the syndrome check `synd(ê) ≡ s_chan` to decide either when to terminate the loop (self-boosting) or which permuted prediction to keep (TTA). The active strategy is selected through the `tts:` block in the evaluation config, and Hydra-instantiated through `_target_`. The default is the no-TTS baseline, defined in [`conf/test.yaml`](../conf/test.yaml) as `_target_: sbnd.tts.SingleShotDecoder`.
 
 ### Self-boosting
 
-In self-boosting (sequential TTS, [`SelfBoostingDecoder`](../src/tts.py)), the model iterates over its own predictions in an attempt to clean them up. After each forward pass, the residual syndrome `s_chan ⊕ ê·Hᵀ` is computed for every sample; samples whose syndrome check fails are re-decoded with the residual as their new input syndrome, and the new prediction is XOR-ed into the cumulative one. The loop terminates as soon as a sample's prediction passes the syndrome check, or after `num_iters` model invocations, whichever comes first. Samples whose residual syndrome stays nonzero after `num_iters` simply return the last cumulative prediction. Early references to this strategy are the *Iterative Error Correction* approach of [Kavvousanos & Paliouras, GLOBECOM 2020](https://ieeexplore.ieee.org/document/9367553) and the *Iterative Error Decimation* decoder by [Kamassury & Silva (2021)](https://arxiv.org/abs/2012.00089).
+In self-boosting (sequential TTS, [`SelfBoostingDecoder`](../src/tts.py)), the model iterates over its own predictions in an attempt to clean them up. The loop terminates as soon as a sample's prediction passes the syndrome check, or after `num_iters` model invocations, whichever comes first. A detailed description is provided in the [PhD thesis of A. Ismail, Chap. 4.2](https://theses.fr/2025IMTA0515). Early references to such a strategy are the *Iterative Error Correction* approach of [Kavvousanos & Paliouras, GLOBECOM 2020](https://ieeexplore.ieee.org/document/9367553) and the *Iterative Error Decimation* decoder by [Kamassury & Silva (2021)](https://arxiv.org/abs/2012.00089).
 
 ```yaml
 tts:
@@ -101,7 +106,7 @@ Output: results are written to `<model>-sb<num_iters>.csv` (e.g. `<model>-sb5.cs
 
 ### Test-time augmentation
 
-In test-time augmentation (parallel TTS, [`TTADecoder`](../src/tts.py)), the model is run independently on `num_perms` permuted versions of each received word. The permutations are drawn at random from the code's automorphism group, supplied via the same transform classes used for training-time data augmentation (`BCHPerms`, `QCPerms`, `GenericPerms` — see [Data augmentation](training.md#data-augmentation)). For each permutation, the resulting logits are inverse-permuted back into the original coordinate system. A sample stops as soon as one of its permutations yields a prediction that passes the syndrome check; for samples that never pass, the per-permutation logits are averaged and thresholded to produce a final prediction.
+In test-time augmentation (parallel TTS, [`TTADecoder`](../src/tts.py)), the model is run independently on `num_perms` permuted versions of each received word. The permutations are drawn at random from the code's automorphism group, supplied via the same transform classes used for training-time data augmentation (`BCHPerms`, `QCPerms`, `GenericPerms` — see [Data augmentation](training.md#data-augmentation)). For each permutation, the resulting logits are inverse-permuted back into the original coordinate system. A sample stops as soon as one of its permutations yields a prediction that passes the syndrome check; for samples that never pass, the decoder output is obtained by averaging the predictions of all permutations.
 
 ```yaml
 tts:

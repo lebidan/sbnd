@@ -225,13 +225,13 @@ The stacked GRU decoder is the straightforward implementation of [Bennatan et al
 
 <details><summary>ECCT decoder</summary>
 
-Essentially the verbatim copy of the implementation published in the [original repo](https://github.com/yoniLc/ECCT). The two main changes are the use of PyTorch's `scaled_dot_product_attention` function to speed up training, and a mask modified to prevent tokens to attend to themselves. The latter was found to slightly improve accuracy in our experiments.
+Essentially the verbatim copy of the implementation published in the [original repo](https://github.com/yoniLc/ECCT). The two main changes are the use of PyTorch's [`scaled_dot_product_attention`](https://docs.pytorch.org/docs/stable/generated/torch.nn.functional.scaled_dot_product_attention.html) function to speed up training, and a mask modified to prevent tokens to attend to themselves. The latter was found to slightly improve accuracy in our experiments.
 
 </details>
 
 <details><summary>CrossMPT decoder</summary>
 
-Verbatim copy of the implementation published in the [original repo](https://github.com/iil-postech/crossmpt), with the use of PyTorch's `scaled_dot_product_attention` function to speed up training.
+Verbatim copy of the implementation published in the [original repo](https://github.com/iil-postech/crossmpt), with the use of PyTorch's [`scaled_dot_product_attention`](https://docs.pytorch.org/docs/stable/generated/torch.nn.functional.scaled_dot_product_attention.html) function to speed up training.
 
 </details>
 
@@ -243,24 +243,24 @@ The rECCT decoder is a recurrent implementation of ECCT which can reach comparab
 
 All decoders inherit from the abstract [`BaseDecoder`](https://github.com/lebidan/sbnd/blob/main/src/decoder.py) class in [`src/decoder.py`](https://github.com/lebidan/sbnd/blob/main/src/decoder.py), which defines the shared interface: `forward(ym, s) → logits`, where `ym` is the normalized channel magnitude `|y|/max(|y|)`, `s` is the bipolar syndrome vector, and `logits` is the decoder prediction of the target error pattern. `BaseDecoder` also centralizes the common constructor arguments (`code`, `error_space`, `compile`) and the standard attributes (`output_sz`, `example_input_array`) — see the header of [`src/decoder.py`](https://github.com/lebidan/sbnd/blob/main/src/decoder.py) for the full API description, including the meaning of `error_space` and the convention of calling `self._maybe_compile()` last in the subclass `__init__`.
 
-To implement your own decoder, inherit from `BaseDecoder` and use [`src/mocked.py`](src/mocked.py) as a minimal starting template — see [docs/extending.md](docs/extending.md) for the full contract and conventions.
+To implement your own decoder, inherit from `BaseDecoder` and use [`src/mocked.py`](src/mocked.py) as a minimal starting template — see [docs/extending.md](docs/extending.md) for the full description of the interface and conventions.
 
 ### Decoding modes
 
 SBND supports two decoding modes, selected via the shared `error_space` parameter on both the decoder and the datamodule (they must agree, and a mismatch is caught at `trainer.fit` start):
 
-1. **Codeword-level decoding** (`error_space: "codeword"`, default) — the standard SBND setup. The decoder is trained to predict the full n-bit error pattern `e_cw = c - c_hat` affecting the transmitted codeword. Evaluation reports the **FER on the decoded codeword** and the **BER on the decoded message**, with the codeword-to-message mapping inverted via `Ginv` when the code is non-systematic.
+1. **Codeword-level decoding** (`error_space: "codeword"`, default) — the standard SBND setup. The decoder is trained to predict the full n-bit error pattern `e_cw = c - c_hat` where `c` is the transmitted codeword and `c_hat` is the decoder decision on `c`.. Evaluation reports the **FER on the decoded codeword** and the **BER on the decoded message**, with the codeword-to-message mapping inverted via `Ginv` when the code is non-systematic.
 
 2. **Message-level decoding** (`error_space: "message"`), which we abbreviate as **iSBND** (information-based SBND), proposed in [De Boni Rovella & Benammar, GLOBECOM 2023](https://arxiv.org/abs/2402.13948). The decoder directly estimates the k-bit error pattern on the information message, computed as `e_msg = Ginv · e_cw`. This mode is particularly well-suited to non-systematic codes, but can also bring a small FER gain on systematic codes: it is generally slightly easier for the model to learn the partial error pattern restricted to the first or last k bits of the codeword (the message part), than the full n-bit error pattern. For models trained in iSBND mode, evaluation reports both **FER and BER on the decoded message**.
 
-Both the decoder and the datamodule default to `"codeword"`, so standard SBND experiments need no extra config. To switch to iSBND mode, set `error_space: "message"` on both the `decoder:` and `data:` blocks of your experiment config.
+Both the decoder and the datamodule default to `"codeword"`, so standard SBND experiments need no extra config. To switch to iSBND mode, set `error_space: "message"` on both the `decoder:` and `data:` blocks of your experiment config. See for example this [Reed-Muller decoding experiment](https://github.com/lebidan/sbnd/blob/main/conf/exp/recct-rm-32-16-ml-4m-3dB.yaml).
 
 ## 📚 Documentation
 
 The reference documentation is split into three focused guides under [`docs/`](docs):
 
 * [**Training a model**](docs/training.md) — creating a training experiment config: specifying code, data (on-demand vs. pre-computed, augmentation, dataset format and download), decoder, optimizer/scheduler, precision, resume vs. continue, logging, and end-of-training test evaluation.
-* [**Evaluating a model**](docs/evaluation.md) — running `sbnd-test`: the basic Monte-Carlo SNR sweep to measure WER and BER, hard-decision decoding emulation as a sanity reference, and the test-time scaling variants (self-boosting and TTA).
+* [**Evaluating a model**](docs/evaluation.md) — running `sbnd-test`: the basic Monte-Carlo SNR sweep to measure WER and BER, hard-decision decoding optional post-filtering, and the test-time scaling variants (self-boosting and TTA).
 * [**Extending SBND**](docs/extending.md) — adding your own decoder architecture: the `BaseDecoder` template, conventions, a walk-through of the mocked decoder example, and how to wire it into an experiment.
 
 ## 📁 Project Structure
@@ -304,13 +304,13 @@ sbnd/
 
 This project is licensed under the [MIT License](https://github.com/lebidan/sbnd/blob/main/LICENSE).
 
-## 🛠️ Contributing
+## 🛠 Contributing
 
-Contributions are welcome. Please open an [issue](https://github.com/lebidan/sbnd/issues) to report bugs, suggest features (new codes, new decoders, etc), or propose better training parameters for the available codes and models.
+Contributions are welcome. Please open an [issue](https://github.com/lebidan/sbnd/issues) to report bugs, suggest features (new codes, new decoders, etc), or propose better results or training parameters for the available codes and decoders. We'd be happy to update this codebase according to your feedback. 
 
 ## 🤝 Acknowledgments
 
-Much of this code was developed within the framework of the [ANR-21 AI4CODE project](https://ai4code.projects.labsticc.fr/).
+Much of this code was developed within the framework of the [ANR-21 AI4CODE project](https://ai4code.projects.labsticc.fr/). Earlier versions of this codebase were used to obtain the results reported in our [ICMLCN 2025 paper](https://arxiv.org/abs/2502.10183) as well as in Chapters 3 and 4 of [Ahmad Ismail PhD thesis](https://theses.fr/2025IMTA0515).
 
 The following decoder implementations are adapted from their original authors' code:
 
@@ -327,7 +327,7 @@ This project has greatly benefited from the following open-source software:
 
 ## Citation
 
-If you find this code helpful in your project or research, please consider citing it. Citation metadata is provided in [`CITATION.cff`](CITATION.cff); GitHub renders it as a "Cite this repository" button in the repo sidebar. A BibTeX equivalent:
+If you find this code helpful in your project or research, please consider citing it:
 
 ```bibtex
 @misc{lebidan2026sbnd,
