@@ -19,10 +19,11 @@ Syndrome-Based Neural Decoding
 <a href="#-installation">Installation</a> |
 <a href="#-getting-started">Getting Started</a> |
 <a href="#-supported-codes--decoders">Codes &amp; Decoders</a> |
-<a href="#-configuration-guide">Configuration</a> |
-<a href="#-project-structure">Structure</a> |
-<a href="#-contributing">Contributing</a> |
-<a href="#-acknowledgments">Acknowledgments</a>
+<a href="#-documentation">Documentation</a> |
+<a href="docs/training.md">Training</a> |
+<a href="docs/evaluation.md">Evaluation</a> |
+<a href="docs/extending.md">Extending</a> |
+<a href="#-contributing">Contributing</a>
 </p>
 
 **`SBND`** is a PyTorch/Lightning framework for training and evaluating syndrome-based neural decoders for linear error-correcting codes.
@@ -62,11 +63,11 @@ Configuration file to reproduce the rECCT results: [here](https://github.com/leb
 
 </details>
 
-<details><summary>Decoding the (96,48,10) quasi-cyclic LDPC</summary>
+<details><summary>Decoding the (96,48,10) quasi-cyclic LDPC code</summary>
 
 <img alt="QC-LDPC(96,48,10) performance" src="https://raw.githubusercontent.com/lebidan/sbnd/main/media/fer_96_48.png?raw=true" width=90%>
 
-- High-SNR FER performance within 1.0 dB or less of MLD (still much room for improvement)
+- High-SNR FER performance within 1.0 dB or less of MLD (but still *much room left for improvement*)
 - Matches or outperforms BP with 100 iterations
 
 This very nice and strong short quasi-cyclic LDPC code was designed at [RPTU](https://rptu.de/channel-codes/channel-codes-database/more-ldpc-codes#c94700) (formerly TU Kaiserslautern-Landau) and used as example in their [Saturated Min-Sum decoding](https://www.date-conference.com/proceedings-archive/2016/pdf/0760.pdf) DATE 2016 paper. 
@@ -152,9 +153,7 @@ If everything is set up correctly, training should complete in a few minutes.
 
 ### Train a model
 
-Training is configured with [Hydra](https://hydra.cc). Each experiment config is located in [`conf/exp/`](https://github.com/lebidan/sbnd/tree/main/conf/exp) and defines a complete training setup: the error-correcting **code**, the **decoder** architecture, the **training data** pipeline, and the **training parameters** (optimizer, LR scheduler, precision, etc.). 
-
-Use the `sbnd-train` CLI to launch a training job, selecting an experiment with `exp=`:
+Training is configured with [Hydra](https://hydra.cc). Each experiment config under [`conf/exp/`](conf/exp) defines a complete training setup: the error-correcting **code**, the **decoder** architecture, the **training data** pipeline, and the **training parameters** (optimizer, LR scheduler, precision, etc.). Launch a training job with the `sbnd-train` CLI, selecting an experiment with `exp=`:
 
 ```
 sbnd-train exp=ecct-bch-63-45-ml-4m-2dB-aug
@@ -166,83 +165,27 @@ Any config value can be overridden on the command line:
 sbnd-train exp=ecct-bch-63-45-ml-4m-2dB-aug gpus=2 cpus=16 max_epochs=64 lr=0.001
 ```
 
-See the [Configuration Guide](#-configuration-guide) for details on how to create your own experiments.
+Training artifacts (Hydra config, logs, checkpoints) are saved under `./log/train/runs/YYYY-MM-DD_HH-MM-SS/`. Two checkpoints are written to the `checkpoints/` run subdirectory: `last.ckpt` (latest epoch) and `<exp-file-name>-<max_epochs>epochs-<wandb-run-name>.ckpt` (best model by validation accuracy).
 
-Training artifacts (Hydra config, logs, checkpoints) are saved under `./log/train/runs/YYYY-MM-DD_HH-MM-SS/` to make sure each run is unique. 
-
-Two checkpoints are saved in the `checkpoints/` run subdirectory: `last.ckpt` (model state at the latest epoch) and `<exp-file-name>-<max_epochs>epochs-<wandb-run-name>.ckpt` (best model by validation accuracy). The W&B run name suffix is omitted if W&B is not installed.
+→ Full reference, including how to create your own training experiment config: see [docs/training.md](docs/training.md).
 
 ### Evaluate a model
 
-`sbnd-test` evaluates a trained checkpoint through Monte Carlo simulation over a range of Eb/N0 values, reporting **Word Error Rate (WER)** and **Bit Error Rate (BER)** (calculated on the message bits) for each SNR point. The mode (`error_space`) used at training time is read back from the checkpoint, so FER/BER are computed accordingly — see [Decoding modes](#decoding-modes).
-
-Like `sbnd-train`, evaluation is configured via [Hydra](https://hydra.cc/). The base config [`conf/test.yaml`](https://github.com/lebidan/sbnd/blob/main/conf/test.yaml) ships with preset Monte-Carlo simulation defaults, so a first evaluation pass only needs the model checkpoint:
+`sbnd-test` evaluates a trained checkpoint through Monte-Carlo simulation over a range of Eb/N0 values, reporting **Word Error Rate (WER)** and **Bit Error Rate (BER)** at each SNR point. A first evaluation pass requires only the model checkpoint:
 
 ```
 sbnd-test model=/path/to/my-model.ckpt
 ```
 
-where `/path/to/my-model.ckpt` should have the form `./log/train/runs/YYYY-MM-DD_HH-MM-SS/checkpoints/<exp-file-name>-<max_epochs>epochs-<wandb-run-name>.ckpt`
-
-Any field can be overridden directly on the command line:
+Repeated evaluations with the same set of options can be grouped into a preset under [`conf/eval/`](conf/eval) and selected with `eval=<name>`:
 
 ```
-sbnd-test model=/path/to/my-model.ckpt snr_min=1 snr_max=5 snr_step=0.5 num_batches=8192 batch_size=4096
+sbnd-test model=/path/to/my-model.ckpt eval=bch-31-21
 ```
 
-For repeated evaluations with the same set of options, group them into a preset under [`conf/eval/`](https://github.com/lebidan/sbnd/tree/main/conf/eval) and select it with `eval=<name>` (e.g. one preset per code):
+`sbnd-test` also supports hard-decision decoding emulation (the `hdd` flag) and two test-time scaling variants — sequential **self-boosting** and parallel **test-time augmentation** — that exchange extra inference compute for lower error rates.
 
-```
-sbnd-test model=/path/to/my-model.ckpt eval=my-eval-config
-```
-
-> A few evaluation presets for the different codes shipped with SBND are available in [`conf/eval/`](https://github.com/lebidan/sbnd/tree/main/conf/eval). You may to adjust the batch size and number of batches to match your GPU capabilities.
-
-Results are saved to a CSV file named after the checkpoint under the output directory (default: [`./log/test/`](https://github.com/lebidan/sbnd/tree/main/log/test)). If the file already exists, new SNR points are appended; for SNR points that are already present, the new error counts are **accumulated** on top of the previous ones (and WER/BER are recomputed from the cumulative totals), so you can extend an evaluation incrementally across multiple runs and tighten the statistics over time.
-
-| Option | Default | Description |
-| --- | --- | --- |
-| `model` | — (required) | Path to the model checkpoint to evaluate |
-| `snr_min` / `snr_max` / `snr_step` | 0.0 / 5.0 / 1.0 | Eb/N₀ range to simulate (dB) |
-| `batch_size` | 4096 | Test batch size |
-| `num_batches` | 1024 | Number of batches per SNR point |
-| `num_workers` | 8 | Number of workers for dataloading |
-| `hdd` | `false` | Emulate hard-decision decoding (perfect correction if errors ≤ t). Requires a code with known `dmin` and a model trained in `error_space=codeword` |
-| `tts` | `SingleShotDecoder` | Decoding strategy — see [Test-time scaling](#test-time-scaling) |
-| `output_dir` | `./log/test` | Output directory for the results CSV |
-
-#### Test-time scaling
-
-Beyond the no-TTS baseline (one forward pass per sample), `sbnd-test` supports two test-time scaling (TTS) variants that trade extra inference compute for lower error rates. Both can be activated through the `tts:` block in the evaluation config and require a model trained in `error_space=codeword` (the syndrome check that drives early termination only makes sense in codeword space). The active strategy is appended to the output filename so different TTS sweeps don't overwrite one another (e.g. `<model>-sb5.csv`, `<model>-tta4.csv`). TTS combines with `hdd: true`, in which case both suffixes appear (e.g. `<model>-sb5-hdd.csv`).
-
-**1. Self-boosting** (sequential TTS, [`SelfBoostingDecoder`](https://github.com/lebidan/sbnd/blob/main/src/tts.py)). The model iterates over its own predictions in an attempt to correct the errors left at the previous iteration. The loop stops as soon as a sample's prediction passes the syndrome check, or after a maximum of `num_iters` model invocations. Early references to such a strategy are the *Iterative Error Correction* approach of [Kavvousanos & Paliouras, GLOBECOM 2020](https://ieeexplore.ieee.org/document/9367553) and the *Iterative Error Decimation* decoder by [Kamassury & Silva (2021)](https://arxiv.org/abs/2012.00089).
-
-```yaml
-tts:
-  _target_: sbnd.tts.SelfBoostingDecoder
-  num_iters: 5
-```
-
-**2. Test-time augmentation** (parallel TTS, [`TTADecoder`](https://github.com/lebidan/sbnd/blob/main/src/tts.py)). For each test sample, draw `num_perms` random code automorphisms from the same `transforms.py` classes used for training-time data augmentation (`BCHPerms`, `QCPerms`, `GenericPerms`). Each permutation is applied to the received word, the model is run, and the resulting logits are inverse-permuted back to the original coordinates. If one of the predictions passes the syndrome check, this is the model output. Otherwise the output logits are calculated as the average of all predictions.
-
-```yaml
-tts:
-  _target_: sbnd.tts.TTADecoder
-  num_perms: 4
-  transform:
-    _partial_: true
-    _target_: sbnd.transforms.BCHPerms   # same classes as the training transform
-    is_extended: false                    # set true for eBCH codes
-```
-
-Both TTS variants can be activated either by adding the block above to a [`conf/eval/`](https://github.com/lebidan/sbnd/tree/main/conf/eval) preset or directly on the command line:
-
-```
-sbnd-test model=/path/to/my-model.ckpt eval=bch-31-21 \
-  tts._target_=sbnd.tts.SelfBoostingDecoder +tts.num_iters=10
-```
-
-The self-boosting and TTA strategies have been compared in the [PhD thesis of A. Ismail, Chap. 4.2](https://theses.fr/2025IMTA0515). Both rapidly increase the inference cost and show diminishing returns as the model gets better. Whenever applicable, hard-decision decoding (`hdd` emulation flag) remains the most cost-efficient and effective strategy to get an extra boost in performance at inference time.
+→ Full reference, options table, and TTS configuration: see [docs/evaluation.md](docs/evaluation.md).
 
 
 ## 🔍 Supported Codes & Decoders
@@ -300,7 +243,7 @@ The rECCT decoder is a recurrent implementation of ECCT which can reach comparab
 
 All decoders inherit from the abstract [`BaseDecoder`](https://github.com/lebidan/sbnd/blob/main/src/decoder.py) class in [`src/decoder.py`](https://github.com/lebidan/sbnd/blob/main/src/decoder.py), which defines the shared interface: `forward(ym, s) → logits`, where `ym` is the normalized channel magnitude `|y|/max(|y|)`, `s` is the bipolar syndrome vector, and `logits` is the decoder prediction of the target error pattern. `BaseDecoder` also centralizes the common constructor arguments (`code`, `error_space`, `compile`) and the standard attributes (`output_sz`, `example_input_array`) — see the header of [`src/decoder.py`](https://github.com/lebidan/sbnd/blob/main/src/decoder.py) for the full API description, including the meaning of `error_space` and the convention of calling `self._maybe_compile()` last in the subclass `__init__`.
 
-To implement your own decoder, inherit from `BaseDecoder` and use [`src/mocked.py`](https://github.com/lebidan/sbnd/blob/main/src/mocked.py) as a minimal starting template.
+To implement your own decoder, inherit from `BaseDecoder` and use [`src/mocked.py`](src/mocked.py) as a minimal starting template — see [docs/extending.md](docs/extending.md) for the full contract and conventions.
 
 ### Decoding modes
 
@@ -312,193 +255,13 @@ SBND supports two decoding modes, selected via the shared `error_space` paramete
 
 Both the decoder and the datamodule default to `"codeword"`, so standard SBND experiments need no extra config. To switch to iSBND mode, set `error_space: "message"` on both the `decoder:` and `data:` blocks of your experiment config.
 
-## 📝 Configuration Guide 
+## 📚 Documentation
 
-Training is orchestrated by [`SBNDLitModule`](https://github.com/lebidan/sbnd/blob/main/src/model.py), a PyTorch Lightning module wrapper. The SBND decoder architecture to train is passed as a constructor argument to this module. SBND models are trained in a supervised manner, to minimize the average binary cross-entropy between the predicted and target error patterns. The two main metrics monitored during training are **loss** and **accuracy** (the fraction of correctly predicted error patterns).
+The reference documentation is split into three focused guides under [`docs/`](docs):
 
-Training configuration is managed with [Hydra](https://hydra.cc). The base config [`conf/train.yaml`](https://github.com/lebidan/sbnd/blob/main/conf/train.yaml) defines defaults for hardware, logging, callbacks, and path variables such as `codes_dir` (default: `./data/codes`). Experiment configs under [`conf/exp/`](https://github.com/lebidan/sbnd/tree/main/conf/exp) override what they need, following the naming convention `<decoder>-<code>-<data_mode>-<dataset_size>-<snr>[-aug].yaml`. The `dev-test-mocked` experiment is an exception to this convention: it serves as a quick sanity check and is the default when no experiment is specified.
-
-> We recommend starting from the shipped examples in [`conf/exp/`](https://github.com/lebidan/sbnd/tree/main/conf/exp) and adapting them to your needs. Each training experiment comes with a model performance evaluation log file in [`log/test`](https://github.com/lebidan/sbnd/tree/main/log/test).
-
-### Code
-
-Specify the error-correcting code by pointing to a `.mat` file (see [Codes](#codes)):
-
-```yaml
-code:
-  _target_: sbnd.codes.LinearCode
-  mat_file: ${codes_dir}/bch.63.45.mat
-```
-
-The `codes_dir` variable is defined in [`conf/train.yaml`](https://github.com/lebidan/sbnd/blob/main/conf/train.yaml) and defaults to `./data/codes`.
-
-### Training data
-
-Training and evaluation data is handled by the [`SBNDDataModule`](https://github.com/lebidan/sbnd/blob/main/src/data.py) class. A training sample is a pair `((|y|,s), e)`, where `(|y|,s)` is the decoder input (received LLR magnitude vector and syndrome) and `e` is the target error pattern. SBND models are trained on noisy observations `y = 1 + w` of the all-zero codeword (all-one BPSK modulated codeword), taking advantage of the fact that SBND decoding is agnostic to the transmitted codeword. On the other hand, model evaluation is conducted on randomly generated codewords.
-
-At present, SBND supports two training data strategies, selected by whether `train_file` is set:
-
-#### 1. On-demand generation (default, no `train_file`)
-
-Noisy codewords are generated randomly at every training step. The model is exposed to fresh data at each step — no sample is ever repeated. This mode avoids large dataset files and is the simplest way to get started. Note that data augmentation is not applied in this mode, since the data is already unique at every step. The downside is that the model is trained for perfect correction, an unrealistic goal that ultimately hinders WER performance (see our [ICMLCN 2025 paper](https://arxiv.org/abs/2502.10183) for details). In this mode, a training epoch consists of `n_train_samples / train_bs` training steps, or batches.
-
-On-demand mode is selected automatically when `train_file` is omitted; it requires `ebno_dB_train` and a non-zero `n_train_samples`. If `n_val_samples` is not given, validation defaults to 25% of `n_train_samples`. Both `n_train_samples` and `n_val_samples` are rounded down to the nearest multiple of `train_bs` / `val_bs`.
-
-```yaml
-data:
-  _target_: sbnd.data.SBNDDataModule
-  ebno_dB_train: 2.0
-  n_train_samples: 1048576
-  train_bs: 4096
-  n_val_samples: 524288
-  val_bs: 4096
-```
-
-#### 2. Pre-computed datasets (`train_file` specified)
-
-Load training and validation data from user-supplied `.mat` files. Each file must contain a matrix of received words `y` and a matrix of target binary error patterns `e`. The same fixed dataset is reused at each epoch, which gives total control over the training distribution, making it possible to more closely approach Maximum Likelihood decoding performance with [much fewer samples than with on-demand data](https://arxiv.org/abs/2502.10183). If no `val_file` is provided, a validation set is created by random split of the training set — the default split ratio is 75%/25%, overridable with an explicit `n_val_samples`. The training transform (if any) is applied only to the training subset; validation samples are never augmented.
-
-`n_train_samples` defaults to 0, meaning the entire file is used; set it to a positive value to use only the first N rows. `n_val_samples` behaves identically when loading from `val_file`.
-
-The `data_dir` variable defaults to `./data/datasets` and is defined in [`conf/train.yaml`](https://github.com/lebidan/sbnd/blob/main/conf/train.yaml).
-
-```yaml
-data:
-  _target_: sbnd.data.SBNDDataModule
-  train_file: ${data_dir}/bch-63-45/train-ml-4M-2dB.mat
-  train_bs: 4096
-  val_file: ${data_dir}/bch-63-45/val-ml-512K-2dB.mat
-  val_bs: 4096
-```
-
-**Forbidden combinations.** Setting `val_file` without `train_file` is rejected at construction time (on-demand mode does not load validation from a file). On-demand mode silently ignores `transform`, since each batch is already unique.
-
-#### Pre-computed dataset format and download
-
-Pre-computed training datasets are too large to ship with the repository. Most of the training experiments in the [`conf/exp/`](https://github.com/lebidan/sbnd/tree/main/conf/exp) directory can be reproduced with the datasets listed below. Each dataset consists of ML error patterns collected by standard Monte Carlo simulation of an ordered statistics decoder (OSD), and comes as a bundle of training and validation data.
-
-| Code | Dataset description | Size | Link |
-| --- | --- | --- | --- |
-| RM(32,16,8) | 4M training + 512K validation samples collected at Eb/N0 = 3 dB | ~1 GB | [Download](https://sdrive.cnrs.fr/s/waykmQteWx5RZPn) |
-| eBCH(32,16,8) | 4M training + 512K validation samples collected at Eb/N0 = 3 dB | ~1 GB | [Download](https://sdrive.cnrs.fr/s/fx7kN9s5MwZfi35) |
-| BCH(31,21,5) | 4M training + 512K validation samples collected at Eb/N0 = 3 dB | ~1 GB | [Download](https://sdrive.cnrs.fr/s/bKBHagxAwLiNNzn) |
-| BCH(63,45,7) | 4M training + 512K validation samples collected at Eb/N0 = 2 dB | ~2.2 GB | [Download](https://sdrive.cnrs.fr/s/wMDN6beY2Gnb7rg) |
-
-Each dataset is stored as a `.mat` and must contain at least the following fields:
-
-| Field | Type | Shape | Description |
-| --- | --- | --- | --- |
-| `y` | float | (N, n) | Received words (channel output) |
-| `e` | float/int8 | (N, n) | Target binary error patterns (ML decoder decisions) |
-
-`N` is the number of samples, `n` is the code length. Both MATLAB v7 and v7.3 (HDF5) formats are supported.
-
-Additional datasets used to produce the results in our [ICMLCN 2025 paper](https://arxiv.org/abs/2502.10183) can be found on the [AI4CODE website](https://ai4code.projects.labsticc.fr/software/), or via their [official DOI](https://doi.org/10.57745/FWE4FB).
-
-#### Data augmentation
-
-For pre-computed datasets (mode 2 above), data augmentation can be enabled via the `transform` option. This applies random permutations from the code's automorphism group to each batch, effectively multiplying the number of distinct training examples. At present, the following code-specific transforms are available in [`transforms.py`](https://github.com/lebidan/sbnd/blob/main/src/transforms.py):
-
-* [`BCHPerms`](https://github.com/lebidan/sbnd/blob/main/src/transforms.py) — cyclic × Frobenius permutations for BCH codes (works with extended BCH too by setting `is_extended = true`)
-* [`QCPerms`](https://github.com/lebidan/sbnd/blob/main/src/transforms.py) — quasi-cyclic shift permutations for QC-LDPC codes (requires the circulant size `Zc`)
-
-```yaml
-data:
-  transform:
-    _partial_: true
-    _target_: sbnd.transforms.BCHPerms   # or sbnd.transforms.QCPerms
-    is_extended: true # for eBCH codes only
-```
-
-### Model
-
-Select a decoder architecture and configure its hyperparameters:
-
-```yaml
-decoder:
-  _target_: sbnd.ecct.ECCT
-  n_layers: 6
-  embed_dim: 128
-  n_heads: 8
-  attn_dropout: 0.1
-  compile: true
-```
-
-Each architecture exposes its own set of parameters. Refer to the corresponding source file (see [Decoder architectures](#decoder-architectures)) for the full list of options.
-
-### Trainer
-
-Any standard PyTorch optimizer can be used via Hydra's `_target_` mechanism. We recommend `AdamW`:
-
-```yaml
-max_epochs: 512
-lr: 0.001
-
-optimizer:
-  _partial_: true
-  _target_: torch.optim.AdamW
-  lr: ${lr}
-  weight_decay: 0.01
-```
-
-Similarly, any PyTorch LR scheduler can be used. Two convenience schedulers are provided in [`lr_sched.py`](https://github.com/lebidan/sbnd/blob/main/src/lr_sched.py): `WarmupStableDecayLR` (warmup–stable–decay, recommended; see [Hu et al., 2024](https://arxiv.org/abs/2405.18392)), and  `CosineWarmupLR` (cosine annealing with linear warmup, another classic for transformer models):
-
-```yaml
-lr_scheduler:
-  _partial_: true
-  _target_: sbnd.lr_sched.WarmupStableDecayLR
-  total: ${max_epochs}
-  warmup: 10
-  decay: 32
-
-trainer:
-  precision: bf16-mixed
-  gradient_clip_val: 1.0
-```
-
-We recommend using `bf16-mixed` precision for faster training without loss of accuracy, especially with transformer-based models. The only exception is the `StackedGRU` decoder, which we found to require `fp32` precision for both stability and performance. For the full list of supported trainer options, see the [Lightning Trainer documentation](https://lightning.ai/docs/pytorch/stable/common/trainer.html).
-
-**Resuming and continuing training** — two flags are available for working with existing checkpoints:
-
-* `resume=<path>` — resume an interrupted training run from a checkpoint (typically `last.ckpt`). All parameters are restored from the checkpoint and training continues where it left off:
-
-  ```
-  sbnd-train exp=ecct-bch-63-45-ml-4m-2dB-aug resume=log/train/runs/.../checkpoints/last.ckpt
-  ```
-* `continue=<path>` — start a new training run using a pre-trained model as initialization. The model weights are loaded from the checkpoint, but optimizer, scheduler, and other training parameters are taken from the current config:
-
-  ```
-  sbnd-train exp=ecct-bch-63-45-ml-4m-2dB-aug continue=log/train/runs/.../checkpoints/best.ckpt lr=0.0001 max_epochs=128
-  ```
-
-**Logging** — CSV logging is always enabled. [Weights & Biases](https://wandb.ai) logging is automatically activated when the `wandb` package is installed. To use W&B in offline mode, set `offline: true` in your experiment config or pass `offline=true` on the command line.
-
-### Test evaluation
-
-`sbnd-train` automatically runs a final test evaluation on the best checkpoint at the end of every training run (`trainer.test` is called after `trainer.fit`). Test data is always generated on-the-fly at each Eb/N0 value listed in `ebno_dB_test`, and the following metrics are reported and logged for each SNR point:
-
-- `test/loss` — cross-entropy loss on the test set
-- `test/acc` — fraction of correctly predicted error patterns (word accuracy)
-- `test/err` — word error rate (WER = 1 − acc)
-
-The test SNR range, sample count, and batch size are configured under the `data:` block of the experiment config:
-
-```yaml
-data:
-  ebno_dB_test: [2.0, 3.0, 4.0]   # one test set per SNR value
-  n_test_samples: 2097152           # 2M samples per SNR point (default)
-  test_bs: 4096
-```
-
-`n_test_samples` is rounded down to the nearest multiple of `test_bs`. In addition, the `PeriodicTest` callback runs a lightweight interim test evaluation every `every_n_epochs` epochs (default: 50) during training, logging results under the `periodic_test/` namespace. This allows monitoring test-set progress without waiting for the full training run to complete. The interval can be changed in the experiment config:
-
-```yaml
-periodic_test_cb:
-  _target_: sbnd.train.PeriodicTest
-  every_n_epochs: 100   # or 0 to disable
-```
-
-> For more comprehensive model evaluation including bit-error rate performance and access to different test-time scaling strategies, use the `sbnd-test` command as described in the [Getting Started](#-getting-started) section.
+* [**Training a model**](docs/training.md) — creating a training experiment config: specifying code, data (on-demand vs. pre-computed, augmentation, dataset format and download), decoder, optimizer/scheduler, precision, resume vs. continue, logging, and end-of-training test evaluation.
+* [**Evaluating a model**](docs/evaluation.md) — running `sbnd-test`: the basic Monte-Carlo SNR sweep to measure WER and BER, hard-decision decoding emulation as a sanity reference, and the test-time scaling variants (self-boosting and TTA).
+* [**Extending SBND**](docs/extending.md) — adding your own decoder architecture: the `BaseDecoder` template, conventions, a walk-through of the mocked decoder example, and how to wire it into an experiment.
 
 ## 📁 Project Structure
 
@@ -511,6 +274,10 @@ sbnd/
 │   └── eval/                   # Evaluation presets
 ├── data/
 │   └── codes/                  # Code definition .mat files (G, H, n, k)
+├── docs/
+│   ├── training.md             # Training reference guide
+│   ├── evaluation.md           # Evaluation reference guide (incl. HDD and test-time scaling)
+│   └── extending.md            # How to add your own decoder
 ├── media/                      # Logo, plots, etc.
 ├── src/                        # Python package (installed as `sbnd`)
 │   ├── codes.py                # LinearCode class
@@ -529,6 +296,7 @@ sbnd/
 │   ├── test.py                 # sbnd-test entry point
 │   └── utils.py                # Logging utilities
 ├── pyproject.toml              # Package metadata and dependencies
+├── CITATION.cff                # Citation metadata (used by GitHub's "Cite this repository")
 └── LICENSE                     # MIT License
 ```
 
@@ -538,7 +306,7 @@ This project is licensed under the [MIT License](https://github.com/lebidan/sbnd
 
 ## 🛠️ Contributing
 
-Contributions are welcome. Please open an [issue](https://github.com/lebidan/sbnd/issues) to report bugs or suggest features, and feel free to submit pull requests.
+Contributions are welcome. Please open an [issue](https://github.com/lebidan/sbnd/issues) to report bugs, suggest features (new codes, new decoders, etc), or propose better training parameters for the available codes and models.
 
 ## 🤝 Acknowledgments
 
@@ -559,13 +327,13 @@ This project has greatly benefited from the following open-source software:
 
 ## Citation
 
-If you find this code helpful in your project or research, please consider citing it:
+If you find this code helpful in your project or research, please consider citing it. Citation metadata is provided in [`CITATION.cff`](CITATION.cff); GitHub renders it as a "Cite this repository" button in the repo sidebar. A BibTeX equivalent:
 
 ```bibtex
 @misc{lebidan2026sbnd,
-      title={SBND: Syndrome-based neural decoding of linear error-correcting codes}, 
+      title={SBND: Syndrome-based neural decoding of linear error-correcting codes},
       author={Raphaël Le Bidan},
       year={2026},
-      url={https://github.com/lebidan/sbnd}, 
+      url={https://github.com/lebidan/sbnd},
 }
 ```
