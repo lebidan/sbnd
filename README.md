@@ -267,33 +267,22 @@ The reference documentation is split into three focused guides under [`docs/`](d
 
 ```
 sbnd/
-├── conf/
-│   ├── train.yaml              # Base Hydra config for training (hardware, logging, callbacks, path variables)
-│   ├── test.yaml               # Base Hydra config for evaluation (Monte-Carlo simulation defaults)
-│   ├── exp/                    # Training experiment configs
-│   └── eval/                   # Evaluation presets
+├── conf/                       # Hydra configs — base train.yaml/test.yaml + exp/ presets and eval/ presets
 ├── data/
-│   └── codes/                  # Code definition .mat files (G, H, n, k)
-├── docs/
-│   ├── training.md             # Training reference guide
-│   ├── evaluation.md           # Evaluation reference guide (incl. HDD and test-time scaling)
-│   └── extending.md            # How to add your own decoder
+│   ├── codes/                  # Code definition .mat files (G, H, n, k)
+│   └── perms/                  # Code automorphism .mat files (used by sbnd.transforms.GenericPerms)
+├── docs/                       # Reference guides: training.md, evaluation.md, extending.md
 ├── media/                      # Logo, plots, etc.
 ├── src/                        # Python package (installed as `sbnd`)
 │   ├── codes.py                # LinearCode class
 │   ├── data.py                 # SBNDDataModule: datasets and batch generation
 │   ├── model.py                # SBNDLitModule: Lightning training wrapper
 │   ├── decoder.py              # BaseDecoder: shared decoder API
-│   ├── ecct.py                 # ECCT decoder
-│   ├── crossmpt.py             # CrossMPT decoder
-│   ├── recct.py                # rECCT decoder
-│   ├── gru.py                  # StackedGRU decoder
-│   ├── mocked.py               # Minimal template decoder
-│   ├── transforms.py           # Code automorphisms (BCHPerms, QCPerms, GenericPerms) — used for both training-time augmentation and TTA
+│   ├── ecct.py / crossmpt.py / recct.py / gru.py / mocked.py   # Decoder implementations
+│   ├── transforms.py           # Code automorphisms (BCHPerms, QCPerms, GenericPerms)
 │   ├── tts.py                  # Decoding strategies: no-TTS baseline, SelfBoosting, TTA
 │   ├── lr_sched.py             # LR schedulers (CosineWarmupLR, WarmupStableDecayLR)
-│   ├── train.py                # sbnd-train entry point
-│   ├── test.py                 # sbnd-test entry point
+│   ├── train.py / test.py      # sbnd-train and sbnd-test entry points
 │   └── utils.py                # Logging utilities
 ├── pyproject.toml              # Package metadata and dependencies
 ├── CITATION.cff                # Citation metadata (used by GitHub's "Cite this repository")

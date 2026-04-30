@@ -99,7 +99,7 @@ decoder:
   compile: true
 ```
 
-The `code`, `error_space`, and `compile` arguments are passed through automatically by [`SBNDLitModule`](../src/model.py); the rest of the block is forwarded to your `__init__`. See any of the existing aug experiment configs for working examples — e.g. [`conf/exp/recct-bch-31-21-ml-1m-3dB-aug.yaml`](../conf/exp/recct-bch-31-21-ml-1m-3dB-aug.yaml).
+The `code`, `error_space`, and `compile` arguments are passed through automatically by [`SBNDLitModule`](../src/model.py); the rest of the block is forwarded to your `__init__`. See any of the existing experiment configs in [`conf/exp/`](../conf/exp) for working examples of the `decoder:` block.
 
 For a quick smoke test, drop a minimal experiment config alongside the existing ones, copying the pattern of [`conf/exp/dev-test-mocked.yaml`](../conf/exp/dev-test-mocked.yaml), and run:
 

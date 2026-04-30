@@ -114,15 +114,37 @@ For pre-computed datasets, data augmentation is enabled via the `transform` opti
 
 * [`BCHPerms`](../src/transforms.py) — cyclic × Frobenius permutations for BCH codes (works for extended BCH too with `is_extended: true`)
 * [`QCPerms`](../src/transforms.py) — quasi-cyclic shift permutations for QC-LDPC codes (requires the circulant size `Zc`)
-* [`GenericPerms`](../src/transforms.py) — load arbitrary permutations from a `.mat` file (useful for custom automorphism subsets)
+* [`GenericPerms`](../src/transforms.py) — load an arbitrary set of permutations from a `.mat` file (useful for codes whose automorphism group is not directly captured by `BCHPerms` or `QCPerms`)
+
+Example for BCH and QC codes:
 
 ```yaml
 data:
   transform:
     _partial_: true
-    _target_: sbnd.transforms.BCHPerms   # or sbnd.transforms.QCPerms, GenericPerms
+    _target_: sbnd.transforms.BCHPerms   # or sbnd.transforms.QCPerms
     is_extended: true                     # for eBCH codes only
 ```
+
+For `GenericPerms`, the `.mat` file must contain a `perms` field of shape `(n_perms, code.n)` whose rows are valid permutations of `[0, 1, ..., code.n − 1]`. Two example files are shipped under [`data/perms/`](../data/perms) and resolved through the `perms_dir` path variable defined in [`conf/train.yaml`](../conf/train.yaml):
+
+| File | Code | Number of permutations |
+| --- | --- | --- |
+| `perms.rm.32.mat` | RM(32, k) for any k | 1024 |
+| `perms.polar.128.mat` | Polar(128, k) for any k | 4096 |
+
+```yaml
+data:
+  transform:
+    _partial_: true
+    _target_: sbnd.transforms.GenericPerms
+    mat_file: ${perms_dir}/perms.rm.32.mat
+    num_perms: 0                          # 0 (default) loads all rows; set to N to keep only the first N
+```
+
+A complete worked example using `GenericPerms` with the shipped RM-32 file is provided in [`conf/exp/recct-rm-32-16-ml-4m-3dB-aug.yaml`](../conf/exp/recct-rm-32-16-ml-4m-3dB-aug.yaml).
+
+The same transform classes — including `GenericPerms` and the shipped `.mat` files — are reused at evaluation time for [test-time augmentation](evaluation.md#test-time-augmentation).
 
 To register a new automorphism family, see [Extending SBND](extending.md).
 

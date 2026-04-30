@@ -118,6 +118,18 @@ tts:
     is_extended: false                    # set true for eBCH codes
 ```
 
+For codes whose automorphisms are not directly captured by `BCHPerms` or `QCPerms`, use `GenericPerms` with a `.mat` file. Two example files are shipped under [`data/perms/`](../data/perms) (RM-32 and Polar-128); see [Data augmentation](training.md#data-augmentation) in the training guide for the file format:
+
+```yaml
+tts:
+  _target_: sbnd.tts.TTADecoder
+  num_perms: 4
+  transform:
+    _partial_: true
+    _target_: sbnd.transforms.GenericPerms
+    mat_file: ${perms_dir}/perms.rm.32.mat
+```
+
 The `_partial_: true` pattern lets Hydra inject the loaded `code` into the transform at decode time, mirroring the training-time data-augmentation setup.
 
 ```

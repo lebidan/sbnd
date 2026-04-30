@@ -23,6 +23,9 @@ codes_dir: ${root_dir}/data/codes
 # path to datasets directory
 data_dir: ${root_dir}/data/datasets
 
+# path to permutations directory (used by sbnd.transforms.GenericPerms)
+perms_dir: ${root_dir}/data/perms
+
 # path to logging directory (root of hydra generation pattern)
 log_dir: ${root_dir}/log
 
