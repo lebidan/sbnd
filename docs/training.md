@@ -139,7 +139,7 @@ data:
     _partial_: true
     _target_: sbnd.transforms.GenericPerms
     mat_file: ${perms_dir}/perms.rm.32.mat
-    num_perms: 0                          # 0 (default) loads all rows; set to N to keep only the first N
+    # num_perms: 256                      # optional — keep only the first N rows; omit (default) to load all
 ```
 
 A complete worked example using `GenericPerms` with the shipped RM-32 file is provided in [`conf/exp/recct-rm-32-16-ml-4m-3dB-aug.yaml`](../conf/exp/recct-rm-32-16-ml-4m-3dB-aug.yaml).
