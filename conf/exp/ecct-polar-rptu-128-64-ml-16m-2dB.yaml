@@ -6,16 +6,14 @@
 
 code:
   _target_: sbnd.codes.LinearCode
-  mat_file: ${codes_dir}/ldpc.tukl.96.48.mat
+  mat_file: ${codes_dir}/polar.rptu.128.64.mat
 
 decoder:
-  _target_: sbnd.recct.RECCT
-  embed_dim: 192
+  _target_: sbnd.ecct.ECCT
+  n_layers: 10
+  embed_dim: 128
   n_heads: 8
-  n_layers: 1
-  n_iters: 10
   attn_dropout: 0.1
-  res_dropout: 0.1
   compile: true
 
 # -----------------------------------------------------------------------------
@@ -25,8 +23,7 @@ decoder:
 
 data:  
   _target_: sbnd.data.SBNDDataModule
-  ebno_dB_train: 3.0
-  n_train_samples: 4194304  # number of training samples per epoch
+  train_file: ${data_dir}/polar-rptu-128-64/train-ml-16M-2dB.mat
   train_bs: 4096
   n_val_samples: 524288
   val_bs: 4096
@@ -38,7 +35,7 @@ data:
 # Model-specific training setup
 # -----------------------------------------------------------------------------
 
-max_epochs: 128
+max_epochs: 256
 lr: 0.0001
 
 optimizer:

@@ -6,7 +6,7 @@
 
 code:
   _target_: sbnd.codes.LinearCode
-  mat_file: ${codes_dir}/ldpc.tukl.96.48.mat
+  mat_file: ${codes_dir}/ldpc.rptu.96.48.mat
 
 decoder:
   _target_: sbnd.ecct.ECCT

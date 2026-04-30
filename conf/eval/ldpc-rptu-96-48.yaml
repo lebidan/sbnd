@@ -1,6 +1,6 @@
 # @package _global_
 #
-# Default evaluation preset for the (96,48) QC-LDPC from TUKL (now RPTU)
+# Default evaluation preset for the (96,48) QC-LDPC from RPTU 
 
 snr_min: 1.0
 snr_max: 5.5
