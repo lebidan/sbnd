@@ -70,9 +70,9 @@ Configuration file to reproduce the rECCT results: [here](https://github.com/leb
 - High-SNR WER performance within 1.0 dB or less of MLD (but still *much room left for improvement*)
 - Matches or outperforms BP with 100 iterations
 
-This very nice and strong short quasi-cyclic LDPC code was designed at [RPTU](https://rptu.de/channel-codes/channel-codes-database/more-ldpc-codes#c94700) (formerly TU Kaiserslautern-Landau) and used as example in their [Saturated Min-Sum decoding](https://www.date-conference.com/proceedings-archive/2016/pdf/0760.pdf) DATE 2016 paper. 
+This very nice and strong short quasi-cyclic LDPC code was designed at [RPTU](https://rptu.de/channel-codes/channel-codes-database/more-ldpc-codes#c94700) and used as example in their [Saturated Min-Sum decoding](https://www.date-conference.com/proceedings-archive/2016/pdf/0760.pdf) DATE 2016 paper. 
 
-Configuration file to reproduce the rECCT results: [here](https://github.com/lebidan/sbnd/blob/main/conf/exp/recct-ldpc-tukl-96-48-on-demand-3dB.yaml)
+Configuration file to reproduce the rECCT results: [here](https://github.com/lebidan/sbnd/blob/main/conf/exp/recct-ldpc-rptu-96-48-on-demand-3dB.yaml)
 
 </details>
 
