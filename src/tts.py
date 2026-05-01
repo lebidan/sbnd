@@ -183,10 +183,11 @@ class TTADecoder:
     ) -> Tensor:
         Ht = code.Ht.to(device=ym.device, dtype=torch.float32)
         chan_synd = syndromes
-        # `targets` (= channel error pattern e) is used purely as a binary vector
-        # whose syndrome under permutation σ matches σ(z)·Hᵀ — i.e. as a stand-in
-        # for the hard decisions, since e·Hᵀ ≡ z·Hᵀ (mod codewords). It is never
-        # consulted as ground truth.
+        # `targets` (= channel error pattern e) is used purely to calculate the
+        # syndrome of permuted inputs; it is required as we no longer have
+        # access to the original received word at the decoder input, only
+        # at the reliability values and received syndrome, and code automorphisms
+        # do not permute syndrome but most often change its value
         e = targets.to(device=ym.device)
         bs, n = ym.shape
 

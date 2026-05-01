@@ -23,7 +23,8 @@ decoder:
 
 data:  
   _target_: sbnd.data.SBNDDataModule
-  train_file: ${data_dir}/polar-rptu-128-64/train-ml-16M-2dB.mat
+  ebno_dB_train: 4.0
+  n_train_samples: 4194304
   train_bs: 4096
   n_val_samples: 524288
   val_bs: 4096
@@ -35,7 +36,7 @@ data:
 # Model-specific training setup
 # -----------------------------------------------------------------------------
 
-max_epochs: 256
+max_epochs: 512
 lr: 0.0001
 
 optimizer:

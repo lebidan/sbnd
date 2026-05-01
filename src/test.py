@@ -253,10 +253,18 @@ def main(cfg: DictConfig) -> None:
     if cfg.hdd:
         log.info(f"HDD emulation enabled (correction capability t = {t})")
 
-    # Instantiate the test-time scaling strategy (defaults to single-shot)
+    # Instantiate the test-time scaling strategy (defaults to no-TTS if not set)
     tts = instantiate(cfg.tts)
     tts.validate(model, code)
-    log.info(f"TTS strategy: {tts.name} (suffix={tts.suffix or '<none>'})")
+    if tts.name == "no-tts":
+        log.info("No TTS - Standard decoding (single forward pass)")
+    else:
+        tts_param_str = ""
+        if tts.name == "self-boosting":
+            tts_param_str = f"with {tts.num_iters} iterations"
+        if tts.name == "tta":
+            tts_param_str = f"with {tts.num_perms} permutations"
+        log.info(f"TTS strategy: {tts.name} {tts_param_str} (suffix={tts.suffix or '<none>'})")
 
     # Build the output file path
     pathlib.Path(cfg.output_dir).mkdir(parents=True, exist_ok=True)
