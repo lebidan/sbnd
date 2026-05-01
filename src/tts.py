@@ -125,10 +125,9 @@ class TTADecoder:
     the provided permutation generator (e.g. `BCHPerms`, `QCPerms`,
     `GenericPerms`). Apply each σ to the received word, recompute the
     syndrome of the permuted hard decisions, run the model, and inverse-permute
-    the resulting logits back into the original coordinate ordering. Stop a
-    sample as soon as one of its perms yields a prediction whose syndrome
-    matches the channel syndrome; for samples that never pass the syndrome
-    check, average the logits across all `num_perms` runs and threshold.
+    the resulting logits back into the original coordinate ordering. 
+    If one of the perms matches the channel syndrome, return the corresponding 
+    logits. Otherwise, average the logits across all perms.
 
     Only valid for models trained with error_space=codeword (the syndrome
     check requires predictions in codeword space).
@@ -139,9 +138,9 @@ class TTADecoder:
     def __init__(self, transform: Callable, num_perms: int = 4) -> None:
         if num_perms < 1:
             raise ValueError(f"num_perms must be >= 1 (got {num_perms})")
-        self._transform_factory = transform
+        self.transform_factory = transform
         self.num_perms = num_perms
-        self._transform: object | None = None
+        self.transform: object | None = None
 
     @property
     def suffix(self) -> str:
@@ -155,23 +154,13 @@ class TTADecoder:
                 f"(got error_space={es!r})"
             )
         # Instantiate the permutation generator now that we have the code.
-        self._transform = self._transform_factory(code)
-        n_avail = self._transform.n_perms  # type: ignore[attr-defined]
+        self.transform = self.transform_factory(code)
+        n_avail = self.transform.n_perms  # type: ignore[attr-defined]
         if self.num_perms > n_avail:
             log.warning(
                 f"TTADecoder: requested num_perms={self.num_perms} but only "
                 f"{n_avail} permutations are available; sampling will repeat."
             )
-
-    def _sample_perms(self, n: int, device: torch.device) -> tuple[Tensor, Tensor]:
-        """Draw n random permutations and their inverses, both shape (n, code.n)."""
-        assert self._transform is not None, "validate() must be called before decode()"
-        perms_pool: Tensor = self._transform.perms  # type: ignore[attr-defined]
-        n_pool: int = self._transform.n_perms  # type: ignore[attr-defined]
-        idx = torch.randint(n_pool, (n,))
-        perms = perms_pool[idx].to(device)
-        perms_inv = perms.argsort(dim=-1)
-        return perms, perms_inv
 
     def decode(
         self,
@@ -181,6 +170,7 @@ class TTADecoder:
         syndromes: Tensor,
         targets: Tensor,
     ) -> Tensor:
+        assert self.transform is not None, "validate() must be called before decode()"
         Ht = code.Ht.to(device=ym.device, dtype=torch.float32)
         chan_synd = syndromes
         # `targets` (= channel error pattern e) is used purely to calculate the
@@ -193,42 +183,44 @@ class TTADecoder:
 
         # Sample bs * num_perms perms once and reshape to (bs, num_perms, n) so
         # each sample gets its own independent set of num_perms permutations.
-        all_perms, all_inv = self._sample_perms(bs * self.num_perms, ym.device)
-        all_perms = all_perms.reshape(bs, self.num_perms, n)
-        all_inv = all_inv.reshape(bs, self.num_perms, n)
+        perms, perms_inv = self.transform.sample_perms(bs * self.num_perms)  # type: ignore[attr-defined]
+        perms = perms.reshape(bs, self.num_perms, n).to(ym.device)
+        perms_inv = perms_inv.reshape(bs, self.num_perms, n).to(ym.device)
 
-        # Per-perm logits in the *original* coordinate system (after inverse-perm).
         logits = torch.empty(
-            (self.num_perms, bs, n), device=ym.device, dtype=torch.float32
+            (self.num_perms, bs, n), dtype=torch.float32, device=ym.device
         )
 
-        # Permutation 0: run on every sample.
-        ymp = ym.take_along_dim(all_perms[:, 0], dim=-1)
-        ep = e.take_along_dim(all_perms[:, 0], dim=-1)
+        # The code apply permutations sequentially to leverage early stopping: 
+        # if a perm yields a syndrome match, we can skip the rest for this
+        # sample and save compute
+
+        # Start with the first permutation
+        ymp = ym.take_along_dim(perms[:, 0], dim=-1)
+        ep = e.take_along_dim(perms[:, 0], dim=-1)
         in_synd = 1 - 2 * ((ep.float() @ Ht) % 2)
-        logits[0] = model(ymp, in_synd).take_along_dim(all_inv[:, 0], dim=-1)
+        logits[0] = model(ymp, in_synd).take_along_dim(perms_inv[:, 0], dim=-1)
         out_synd = 1 - 2 * (((logits[0] < 0).float() @ Ht) % 2)
         needs_update = torch.any(out_synd * chan_synd < 0, dim=-1)
 
-        # Subsequent permutations: only re-decode the samples that failed so far.
-        # Successful samples carry their previous logits forward via `logits[p] = logits[p-1]`.
-        for p in range(1, self.num_perms):
-            logits[p] = logits[p - 1]
-            if not torch.any(needs_update):
-                break
-            u = needs_update
-            ymp = ym[u].take_along_dim(all_perms[u, p], dim=-1)
-            ep = e[u].take_along_dim(all_perms[u, p], dim=-1)
-            in_synd = 1 - 2 * ((ep.float() @ Ht) % 2)
-            new_logits = model(ymp, in_synd).take_along_dim(all_inv[u, p], dim=-1)
-            logits[p, u] = new_logits
-            out_synd = 1 - 2 * (((logits[p] < 0).float() @ Ht) % 2)
-            needs_update = torch.any(out_synd * chan_synd < 0, dim=-1)
+        # Apply other permutations only to rx words for which previous perms 
+        # have failed, until we find a perm that matches the channel syndrome 
+        # or run out of perms.
+        for perm in range(1, self.num_perms):
+            logits[perm] = logits[perm - 1]
+            if torch.any(needs_update):
+                ymp = ym[needs_update].take_along_dim(perms[needs_update, perm], dim=-1)
+                ep = e[needs_update].take_along_dim(perms[needs_update, perm], dim=-1)
+                in_synd = 1 - 2 * ((ep.float() @ Ht) % 2)
+                new_logits = model(ymp, in_synd).take_along_dim(
+                    perms_inv[needs_update, perm], dim=-1
+                )
+                logits[perm, needs_update] = new_logits
+                out_synd = 1 - 2 * (((logits[perm] < 0).float() @ Ht) % 2)
+                needs_update = torch.any(out_synd * chan_synd < 0, dim=-1)
 
-        # For samples that never passed the syndrome check, average across all perms.
-        if torch.any(needs_update):
-            logits[-1, needs_update] = logits[:, needs_update].mean(dim=0)
-
+        # average logits where decoding has failed for all permutations
+        logits[-1, needs_update] = logits[:, needs_update].mean(dim=0)
         return bipolar_to_bit(logits[-1])
 
 

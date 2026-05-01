@@ -113,7 +113,7 @@ A run that completes without raising and reaches non-trivial validation accuracy
 
 The following extension surfaces are stable in the codebase but not yet documented in detail here. They will be covered in a future revision of this guide:
 
-* **Adding a code automorphism family** — implementing a new permutation class in [`src/transforms.py`](../src/transforms.py), used both for training-time data augmentation and for [test-time augmentation](evaluation.md#test-time-augmentation). The contract is small: expose `self.perms` (shape `(n_perms, code.n)`) and `self.n_perms`, plus a `__call__(y, e) → (yp, ep)` method for the training-augmentation path.
+* **Adding a code automorphism family** — implementing a new permutation class in [`src/transforms.py`](../src/transforms.py), used both for training-time data augmentation and for [test-time augmentation](evaluation.md#test-time-augmentation). The contract is small: subclass `BasePerms`, populate `self.perms` (shape `(n_perms, code.n)`) and `self.n_perms`, and provide a `__call__(y, e) → (yp, ep)` method for the training-augmentation path. The `sample_perms(bs) → (perms, perms_inv)` method used by the TTA path is inherited from `BasePerms`.
 * **Adding a TTS variant** — implementing a new decoding strategy in [`src/tts.py`](../src/tts.py). The protocol is `decode(model, code, ym, syndromes, targets) → preds`, plus the `name`, `suffix`, and `validate(model, code)` attributes.
 * **Adding a custom dataset format** — extending [`SBNDDataModule`](../src/data.py) to load datasets with a non-standard layout.
 
