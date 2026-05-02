@@ -192,8 +192,7 @@ def test_model(
                 ym, syndromes, targets = batch
                 ym_dev = ym.to(device)
                 synd_dev = syndromes.to(device)
-                targets_dev = targets.to(device)
-                preds = tts.decode(model, code, ym_dev, synd_dev, targets_dev)  # type: ignore[attr-defined]
+                preds = tts.decode(model, code, ym_dev, synd_dev)  # type: ignore[attr-defined]
                 update_error_stats(
                     code, error_space, preds.cpu(), targets, syndromes, error_stats, t
                 )
@@ -264,7 +263,9 @@ def main(cfg: DictConfig) -> None:
             tts_param_str = f"with {tts.num_iters} iterations"
         if tts.name == "tta":
             tts_param_str = f"with {tts.num_perms} permutations"
-        log.info(f"TTS strategy: {tts.name} {tts_param_str} (suffix={tts.suffix or '<none>'})")
+        log.info(
+            f"TTS strategy: {tts.name} {tts_param_str} (suffix={tts.suffix or '<none>'})"
+        )
 
     # Build the output file path
     pathlib.Path(cfg.output_dir).mkdir(parents=True, exist_ok=True)

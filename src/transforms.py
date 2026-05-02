@@ -14,12 +14,18 @@
 #                       Each row is a valid permutation of [0, ..., code.n - 1]
 #                       that is a code automorphism.
 #   self.n_perms      : int, number of permutations stored in `self.perms`.
+#   self.synd_maps    : Tensor of shape (n_perms, m, m), float32. Per-perm
+#                       linear map taking synd(z) → synd(σ(z)). Populated
+#                       lazily by `compute_synd_maps()` on the first call to
+#                       `sample_perms` to avoid wasting uncessary compute
+#                       when training. Used by `TTADecoder`.
 #   __call__(y, e)    : draw one random permutation per sample and apply it to
 #                       `y` and `e` jointly. Used by the training-augmentation
 #                       path.
 #   sample_perms(bs)  : draw `bs` random permutations and return them together
-#                       with their inverses. Used by `TTADecoder`. Implemented
-#                       once in the `BasePerms` base class.
+#                       with their inverses and the matching syndrome maps.
+#                       Used by `TTADecoder`. Implemented once in the
+#                       `BasePerms` base class.
 
 import torch, numpy as np
 import h5py  # type: ignore[import-untyped]
@@ -31,25 +37,137 @@ from .utils import get_rank_zero_logger
 log = get_rank_zero_logger(__name__)
 
 
+def _syndrome_basis(H: Tensor) -> Tensor:
+    """Return Z (m, n) over GF(2) such that Z @ H.T = I_m mod 2.
+
+    Each row Z[i] is a vector in GF(2)^n with syndrome e_i (the i-th standard
+    basis vector). Built once per code via Gauss-Jordan on [H | I_m]; used by
+    `BasePerms.compute_synd_maps` to lift permutations from coordinate space
+    to syndrome space (so TTA can derive synd(σ(z)) directly from synd(z),
+    without ever touching the channel error pattern).
+    """
+    H = H.to(torch.int64).clone()
+    m, n = H.shape
+    A = torch.cat([H, torch.eye(m, dtype=torch.int64)], dim=1)  # (m, n + m)
+    pivot_cols: list[int] = []
+    row = 0
+    for col in range(n):
+        if row >= m:
+            break
+        for r in range(row, m):
+            if A[r, col].item() == 1:
+                if r != row:
+                    A[[row, r]] = A[[r, row]]
+                # eliminate this column from all other rows
+                for r2 in range(m):
+                    if r2 != row and A[r2, col].item() == 1:
+                        A[r2] = (A[r2] + A[row]) % 2
+                pivot_cols.append(col)
+                row += 1
+                break
+    if row != m:
+        raise ValueError("H must have full row rank to admit a syndrome basis.")
+    # E = A[:, n:] is the cumulative row-op matrix: E @ H = H_rref, with H_rref
+    # carrying I_m at the pivot columns. Placing E.T at those columns of an
+    # otherwise-zero (m, n) matrix gives Z with Z @ Ht = I_m.
+    E = A[:, n:]
+    Z = torch.zeros((m, n), dtype=torch.int64)
+    Z[:, torch.tensor(pivot_cols, dtype=torch.int64)] = E.T
+    # cheap sanity check on the construction (m × m mod-2 product)
+    assert torch.equal(
+        (Z @ H.T) % 2, torch.eye(m, dtype=torch.int64)
+    ), "_syndrome_basis: Z @ H.T ≠ I_m (this is a bug)"
+    return Z
+
+
 class BasePerms:
-    """Shared base for permutation classes. Subclasses must populate
-    `self.perms` (Tensor of shape (n_perms, code.n)) and `self.n_perms` (int).
+    """Shared base for permutation classes. Subclasses must call
+    `super().__init__(code)` and populate `self.perms` (Tensor of shape
+    (n_perms, code.n)) and `self.n_perms` (int). The TTA-only `self.synd_maps`
+    is built lazily on the first `sample_perms` call, so the training-time
+    augmentation path never pays for the syndrome-basis solve.
     """
 
+    code: LinearCode
     perms: Tensor
     n_perms: int
+    synd_maps: Tensor | None  # lazily populated; see `compute_synd_maps`
 
-    def sample_perms(self, bs: int) -> tuple[Tensor, Tensor]:
+    def __init__(self, code: LinearCode) -> None:
+        self.code = code
+        self.synd_maps = None
+
+    def sample_perms(self, bs: int) -> tuple[Tensor, Tensor, Tensor]:
         """Draw `bs` random permutations and return them together with their
-        inverses, both of shape (bs, code.n). Used by `TTADecoder` to permute
-        received words and inverse-permute the resulting logits.
+        inverses (both shape (bs, code.n), int64) and the corresponding
+        syndrome maps (shape (bs, m, m), float32). Used by `TTADecoder` to
+        permute received words, inverse-permute the resulting logits, and
+        derive the input syndromes for permuted inputs from the channel
+        syndrome alone — no access to the channel error pattern needed.
         """
+        if self.synd_maps is None:
+            self.compute_synd_maps()
         n = self.perms.size(1)
-        perms = self.perms[torch.randint(self.n_perms, (bs,))]
+        idx = torch.randint(self.n_perms, (bs,))
+        perms = self.perms[idx]
+        # use scatter(arange(n)) to get the inverse permutations in one shot
         src = torch.arange(n)[None].repeat(bs, 1)
         perms_inv = torch.empty_like(perms)
         perms_inv.scatter_(dim=1, index=perms, src=src)
-        return perms, perms_inv
+        synd_maps = self.synd_maps[idx]  # type: ignore[index]
+        return perms, perms_inv, synd_maps
+
+    def compute_synd_maps(self) -> None:
+        """Build the linear syndrome map M_σ for every σ in `self.perms` and
+        cache it in `self.synd_maps` (shape (n_perms, m, m), float32). Called
+        lazily from `sample_perms` so training-only callers never trigger it.
+
+        For any code automorphism σ, synd(σ(z)) is a linear function of
+        synd(z), namely `synd(σ(z)) = synd(z) @ M_σ` mod 2 with
+        `M_σ = Z[:, σ] @ Ht` where Z is a syndrome basis (Z @ Ht = I_m).
+        Stored as float32 so it composes cleanly with the bipolar syndrome
+        tensors used downstream.
+        """
+        Z = _syndrome_basis(self.code.H)  # (m, n) int64
+        Ht = self.code.Ht.to(torch.int64)  # (n, m)
+        perms = self.perms.to(torch.int64)  # (n_perms, n)
+        # batched gather of Z's columns by each row of `perms` → (n_perms, m, n)
+        Z_perm = (
+            Z.unsqueeze(0)
+            .expand(self.n_perms, -1, -1)
+            .gather(2, perms.unsqueeze(1).expand(-1, self.code.m, -1))
+        )
+        self.synd_maps = ((Z_perm @ Ht) % 2).to(torch.float32)  # (n_perms, m, m)
+
+    def assert_valid_automorphisms(self, code: LinearCode) -> None:
+        """Verify that every row of `self.perms` is a code automorphism of
+        `code`. A permutation σ is a code automorphism iff σ(c) is a codeword
+        for every codeword c, equivalently iff σ(g) is a codeword for every
+        row g of a generator matrix G — so testing on the k rows of G is both
+        necessary and sufficient (cheaper and stronger than testing against
+        random codewords).
+
+        Used by `GenericPerms` as an `__init__`-time guardrail against bad
+        permutation files.
+        """
+        G = code.G.to(torch.int64)
+        Ht = code.Ht.to(torch.int64)
+        perms = self.perms.to(torch.int64)
+        # G[:, perms[i]] @ Ht for every i, in one shot — shape (n_perms, k, m)
+        G_perm = (
+            G.unsqueeze(0)
+            .expand(self.n_perms, -1, -1)
+            .gather(2, perms.unsqueeze(1).expand(-1, G.size(0), -1))
+        )
+        synds = (G_perm @ Ht) % 2
+        bad = synds.reshape(self.n_perms, -1).any(dim=1)
+        if bad.any():
+            n_bad = int(bad.sum())
+            first = int(bad.nonzero(as_tuple=True)[0][0])
+            raise ValueError(
+                f"{n_bad}/{self.n_perms} permutations are not code automorphisms "
+                f"of {code} (first bad index: {first})."
+            )
 
 
 class BCHPerms(BasePerms):
@@ -64,14 +182,15 @@ class BCHPerms(BasePerms):
     """
 
     def __init__(self, code: LinearCode, is_extended: bool = False) -> None:
+        super().__init__(code)
         # precompute the subgroup of cyclic x frobenius permutations
         n = code.n - 1 if is_extended else code.n
         idx = torch.arange(
             n, dtype=torch.int64
         )  # take_along_dim requires int64 indices
         b = torch.log2(torch.tensor(n + 1, dtype=torch.int)).int()
-        perms = [(j + idx * 2**l) % n for j in range(n) for l in range(b)]
-        perms = torch.stack(perms)
+        rows = [(j + idx * 2**l) % n for j in range(n) for l in range(b)]
+        perms = torch.stack(rows)
         self.n_perms = perms.size(0)
         if is_extended:
             # add the fixed extension bit to the end of each permutation
@@ -104,6 +223,7 @@ class QCPerms(BasePerms):
     """
 
     def __init__(self, code: LinearCode, Zc: int = 1) -> None:
+        super().__init__(code)
         assert (
             code.n // Zc
         ) * Zc == code.n, "the circulant size Zc must divide the code length"
@@ -142,8 +262,9 @@ class GenericPerms(BasePerms):
     Two example files are shipped under `data/perms/`:
       - `perms.rm.32.mat`    — 1024 affine-group permutations of length 32,
                                valid for any RM(32, k) code.
-      - `perms.polar.128.mat` — 4096 factor-graph permutations of length 128,
-                                valid for any polar(128, k) code.
+      - `perms.polar.128.mat` — 4096 permutations of length 128 from UTA(8),
+                                valid for any polar(128, k) code constructed
+                                from Arikan's [1 0; 1 1] kernel.
 
     Arguments
     ---------
@@ -158,6 +279,7 @@ class GenericPerms(BasePerms):
     def __init__(
         self, code: LinearCode, mat_file: str, num_perms: int | None = None
     ) -> None:
+        super().__init__(code)
         if not mat_file.endswith(".mat"):
             mat_file += ".mat"
         try:
@@ -185,6 +307,10 @@ class GenericPerms(BasePerms):
             )
         self.n_perms = total_perms if num_perms is None else min(num_perms, total_perms)
         self.perms = perms[: self.n_perms]
+        # Externally supplied perms are not correct by construction (unlike
+        # BCHPerms / QCPerms): verify each one is a genuine code automorphism
+        # before accepting the file. Synd-map construction stays lazy.
+        self.assert_valid_automorphisms(code)
         log.info(
             f"Data augmentation: using {self.n_perms} permutations read from file {mat_file}"
         )

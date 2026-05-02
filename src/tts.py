@@ -2,18 +2,18 @@
 #
 # Each strategy wraps the decoding step inside the test loop and returns a
 # binary error-pattern prediction (in the model's error_space, i.e. shape
-# (bs, n) for codeword space, (bs, k) for message space). 
-# 
-# `SingleShotDecoder` is the no-TTS baseline (one forward pass). 
-# 
+# (bs, n) for codeword space, (bs, k) for message space).
+#
+# `SingleShotDecoder` is the no-TTS baseline (one forward pass).
+#
 # `SelfBoostingDecoder` is a sequential test-time scaling variant: the model
 # iterates over its own predictions.
-# 
+#
 # `TTADecoder` is a parallel test-time scaling variant: the model is run
 # under multiple code automorphisms in parallel and their predictions are
 # combined.
-# 
-# All three variants share the same `decode/validate/name/suffix` protocol 
+#
+# All three variants share the same `decode/validate/name/suffix` protocol
 
 from typing import Callable
 
@@ -22,6 +22,7 @@ from torch import Tensor
 
 from .codes import LinearCode
 from .model import SBNDLitModule
+from .transforms import BasePerms
 from .utils import get_rank_zero_logger
 
 log = get_rank_zero_logger(__name__)
@@ -52,9 +53,7 @@ class SingleShotDecoder:
         code: LinearCode,
         ym: Tensor,
         syndromes: Tensor,
-        targets: Tensor,
     ) -> Tensor:
-        # `targets` is unused (only TTA needs it); accepted for protocol uniformity.
         return bipolar_to_bit(model(ym, syndromes))
 
 
@@ -94,9 +93,7 @@ class SelfBoostingDecoder:
         code: LinearCode,
         ym: Tensor,
         syndromes: Tensor,
-        targets: Tensor,
     ) -> Tensor:
-        # `targets` is unused (only TTA needs it); accepted for interface uniformity.
         Ht = code.Ht.to(device=ym.device, dtype=torch.float32)
         chan_synd = syndromes
 
@@ -123,11 +120,13 @@ class TTADecoder:
 
     For each test sample, draw `num_perms` random code automorphisms σ from
     the provided permutation generator (e.g. `BCHPerms`, `QCPerms`,
-    `GenericPerms`). Apply each σ to the received word, recompute the
-    syndrome of the permuted hard decisions, run the model, and inverse-permute
-    the resulting logits back into the original coordinate ordering. 
-    If one of the perms matches the channel syndrome, return the corresponding 
-    logits. Otherwise, average the logits across all perms.
+    `GenericPerms`). Apply each σ to the received word, derive the syndrome
+    the decoder would see on the σ-permuted input from the channel syndrome
+    via the precomputed linear map M_σ (`synd(σ(z)) = synd(z) @ M_σ` for any
+    code automorphism σ), run the model, and inverse-permute the resulting
+    logits back into the original coordinate ordering. If one of the perms
+    matches the channel syndrome, return the corresponding logits. Otherwise,
+    average the logits across all perms.
 
     Only valid for models trained with error_space=codeword (the syndrome
     check requires predictions in codeword space).
@@ -135,12 +134,14 @@ class TTADecoder:
 
     name: str = "tta"
 
-    def __init__(self, transform: Callable, num_perms: int = 4) -> None:
+    def __init__(
+        self, transform: Callable[[LinearCode], BasePerms], num_perms: int = 4
+    ) -> None:
         if num_perms < 1:
             raise ValueError(f"num_perms must be >= 1 (got {num_perms})")
         self.transform_factory = transform
         self.num_perms = num_perms
-        self.transform: object | None = None
+        self.transform: BasePerms | None = None
 
     @property
     def suffix(self) -> str:
@@ -155,7 +156,7 @@ class TTADecoder:
             )
         # Instantiate the permutation generator now that we have the code.
         self.transform = self.transform_factory(code)
-        n_avail = self.transform.n_perms  # type: ignore[attr-defined]
+        n_avail = self.transform.n_perms
         if self.num_perms > n_avail:
             log.warning(
                 f"TTADecoder: requested num_perms={self.num_perms} but only "
@@ -168,50 +169,51 @@ class TTADecoder:
         code: LinearCode,
         ym: Tensor,
         syndromes: Tensor,
-        targets: Tensor,
     ) -> Tensor:
         assert self.transform is not None, "validate() must be called before decode()"
         Ht = code.Ht.to(device=ym.device, dtype=torch.float32)
         chan_synd = syndromes
-        # `targets` (= channel error pattern e) is used purely to calculate the
-        # syndrome of permuted inputs; it is required as we no longer have
-        # access to the original received word at the decoder input, only
-        # at the reliability values and received syndrome, and code automorphisms
-        # do not permute syndrome but most often change its value
-        e = targets.to(device=ym.device)
         bs, n = ym.shape
 
-        # Sample bs * num_perms perms once and reshape to (bs, num_perms, n) so
-        # each sample gets its own independent set of num_perms permutations.
-        perms, perms_inv = self.transform.sample_perms(bs * self.num_perms)  # type: ignore[attr-defined]
+        # Sample bs * num_perms perms (and matching syndrome maps) once, then
+        # reshape so each sample gets its own independent set of num_perms perms.
+        # The syndrome map M_σ takes the channel syndrome to the syndrome the
+        # decoder would see on the σ-permuted received word — no access to the
+        # channel error pattern is required.
+        perms, perms_inv, synd_maps = self.transform.sample_perms(bs * self.num_perms)
         perms = perms.reshape(bs, self.num_perms, n).to(ym.device)
         perms_inv = perms_inv.reshape(bs, self.num_perms, n).to(ym.device)
+        synd_maps = synd_maps.reshape(bs, self.num_perms, code.m, code.m).to(ym.device)
+        chan_synd_bin = (chan_synd < 0).float()  # bipolar → binary {0,1}
 
         logits = torch.empty(
             (self.num_perms, bs, n), dtype=torch.float32, device=ym.device
         )
 
-        # The code apply permutations sequentially to leverage early stopping: 
+        # The code applies permutations sequentially to leverage early stopping:
         # if a perm yields a syndrome match, we can skip the rest for this
-        # sample and save compute
+        # sample and save compute.
 
         # Start with the first permutation
         ymp = ym.take_along_dim(perms[:, 0], dim=-1)
-        ep = e.take_along_dim(perms[:, 0], dim=-1)
-        in_synd = 1 - 2 * ((ep.float() @ Ht) % 2)
+        in_synd_bin = (chan_synd_bin.unsqueeze(1) @ synd_maps[:, 0]).squeeze(1) % 2
+        in_synd = 1 - 2 * in_synd_bin
         logits[0] = model(ymp, in_synd).take_along_dim(perms_inv[:, 0], dim=-1)
         out_synd = 1 - 2 * (((logits[0] < 0).float() @ Ht) % 2)
         needs_update = torch.any(out_synd * chan_synd < 0, dim=-1)
 
-        # Apply other permutations only to rx words for which previous perms 
-        # have failed, until we find a perm that matches the channel syndrome 
+        # Apply other permutations only to rx words for which previous perms
+        # have failed, until we find a perm that matches the channel syndrome
         # or run out of perms.
         for perm in range(1, self.num_perms):
             logits[perm] = logits[perm - 1]
             if torch.any(needs_update):
                 ymp = ym[needs_update].take_along_dim(perms[needs_update, perm], dim=-1)
-                ep = e[needs_update].take_along_dim(perms[needs_update, perm], dim=-1)
-                in_synd = 1 - 2 * ((ep.float() @ Ht) % 2)
+                in_synd_bin = (
+                    chan_synd_bin[needs_update].unsqueeze(1)
+                    @ synd_maps[needs_update, perm]
+                ).squeeze(1) % 2
+                in_synd = 1 - 2 * in_synd_bin
                 new_logits = model(ymp, in_synd).take_along_dim(
                     perms_inv[needs_update, perm], dim=-1
                 )
