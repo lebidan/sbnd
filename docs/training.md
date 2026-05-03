@@ -65,6 +65,26 @@ data:
   val_bs: 4096
 ```
 
+#### Mixing several training SNR points
+
+`ebno_dB_train` can also be a list, in which case each row of every training batch is independently drawn at one of the listed SNRs. The optional `ebno_dB_train_weights` argument controls the proportion of samples drawn at each SNR (defaults to uniform; values are normalized to sum to 1). Mixing happens *within* each batch — every gradient step sees a representative spread of easy and hard samples — rather than across batches, which would bias each step toward whichever SNR happened to be drawn for it.
+
+```yaml
+data:
+  _target_: sbnd.data.SBNDDataModule
+  ebno_dB_train: [2.0, 3.0, 4.0]
+  ebno_dB_train_weights: [0.6, 0.3, 0.1]   # 60% / 30% / 10%; uniform if omitted
+  ebno_dB_val: 3.0                          # required when ebno_dB_train is a list
+  n_train_samples: 1048576
+  train_bs: 4096
+```
+
+> **Pick the weights deliberately — the default uniform is rarely the right choice.** High-SNR samples are easy: most of them are corrected with little gradient signal, while low-SNR samples carry most of the information the decoder needs to learn. Uniform sampling therefore over-represents the easy end of the range relative to its training value. As a rule of thumb, skew the weights toward the lower SNR points (e.g. 0.6 / 0.3 / 0.1 on [2 dB, 3 dB, 4 dB]) and tune empirically.
+
+Validation must always run at a single SNR — an error rate measured on a mix of SNR points is not interpretable — so `ebno_dB_val` selects the validation SNR. When `ebno_dB_train` is a single scalar, `ebno_dB_val` defaults to that value (preserving the previous behavior); when `ebno_dB_train` is a list, `ebno_dB_val` must be specified explicitly.
+
+> Note: the non-zero syndrome filter applied to training samples (a real decoder never operates on zero-syndrome words) shifts the empirical distribution of *kept* samples toward the lower SNR points, since high-SNR rows are more likely to yield a zero syndrome. The weights therefore describe sampling intent before filtering, not the post-filter empirical distribution.
+
 ### Pre-computed datasets
 
 When `train_file` is specified, training and validation data are loaded from user-supplied `.mat` dataset files. Each file must contain a matrix of received words `y` and a matrix of target binary error patterns `e`. The same fixed dataset is reused at each epoch, which gives total control over the training distribution. With well-chosen samples, this allows approaching Maximum Likelihood decoding performance with [significantly fewer training samples than on-demand data](https://arxiv.org/abs/2502.10183).

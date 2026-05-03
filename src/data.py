@@ -2,7 +2,7 @@
 
 import math, torch, numpy as np
 import h5py  # type: ignore[import-untyped]
-from typing import Iterable, Callable, cast
+from typing import Any, Iterable, Callable, cast
 from omegaconf import OmegaConf, ListConfig
 from torch import Tensor
 from torch.utils.data import DataLoader, Dataset, Subset, random_split
@@ -12,6 +12,19 @@ from .codes import LinearCode
 from .utils import get_rank_zero_logger
 
 log = get_rank_zero_logger(__name__)
+
+
+def _to_float_list(x: Any) -> list[float] | None:
+    """Coerce a scalar / list / tuple / OmegaConf ListConfig / None into a
+    `list[float]` (or None). Used to normalize Hydra/YAML-typed args before
+    handing them off to plain-Python downstream classes."""
+    if x is None:
+        return None
+    if isinstance(x, ListConfig):
+        return cast(list[float], OmegaConf.to_object(x))
+    if isinstance(x, (list, tuple)):
+        return [float(v) for v in x]
+    return [float(x)]
 
 
 def load_matlab_data(mat_file: str) -> tuple[Tensor, Tensor]:
@@ -58,18 +71,35 @@ def prepare_data(
 
 
 def generate_random_training_batch(
-    code: LinearCode, ebno_dB: float, bs: int
+    code: LinearCode, ebno_dB: Tensor, weights: Tensor, bs: int
 ) -> tuple[Tensor, Tensor]:
     """
-    Generate a random batch of bs training samples for the given code and Eb/N0 value (dB)
+    Generate a random batch of bs training samples for the given code and Eb/N0
+    distribution defined by (`ebno_dB`, `weights`).
     Each sample is a tuple (y, e) where:
         - y is the received vector
         - e is the target binary error pattern introduced by the channel
     Transmission of the all-zero codeword is assumed.
     The training samples are only made of rx words with a non-zero syndrome.
+
+    `ebno_dB` is a 1D tensor listing the SNR points to sample from and `weights`
+    is a 1D tensor of same length summing to 1 giving the probability mass at each
+    point. Each of the bs rows independently draws its SNR from this categorical
+    distribution at every call. The SNR list can reduce to a single value, in
+    which case the same SNR is used for all training samples in the batch.
+
+    Note that the non-zero syndrome filter shifts the empirical distribution of
+    kept samples toward the lower-SNR points, since high-SNR samples are more likely
+    to yield zero syndromes.
+
     Output shape is (bs, n), (bs, n)
     """
-    sigma = 1 / math.sqrt(2 * code.rate * 10 ** (ebno_dB / 10))
+    assert (
+        ebno_dB.dim() == 1 and weights.dim() == 1 and ebno_dB.numel() == weights.numel()
+    )
+    row_idx = torch.multinomial(weights, bs, replacement=True)
+    ebno_per_row = ebno_dB[row_idx]
+    sigma = (1 / torch.sqrt(2 * code.rate * 10 ** (ebno_per_row / 10))).unsqueeze(1)
     n_samples = 0
     y = torch.empty(0, code.n, dtype=torch.float32)
     e = torch.empty(0, code.n, dtype=torch.int8)
@@ -112,30 +142,80 @@ class OnDemandDataset(Dataset):
     Batches are generated randomly, one at a time. The data never repeat between epochs.
     To be used with a DataLoader with automatic batching disabled (batch_size=None)
     If `train=True`, the batches are made of rx words with non-zero syndromes only.
+
+    `ebno_dB` may be a single float or a list of floats giving the Eb/N0
+    distribution to sample from. The optional `weights` argument controls the
+    proportion of samples drawn at each SNR (defaults to uniform; values are
+    normalized to sum to 1).
+
+    Test mode requires a single `ebno_dB` value.
+
+    Internally `ebno_dB` and `weights` are always stored as 1D tensors of
+    same length ≥ 1, so the per-row sampling logic in `generate_random_training_batch`
+    handles both single- and multi-SNR cases uniformly.
     """
+
+    ebno_dB: Tensor
+    weights: Tensor
 
     def __init__(
         self,
         code: LinearCode,
-        ebno_dB: float,
+        ebno_dB: float | list[float],
         n_batches: int,
         bs: int,
         train: bool = False,
         error_space: str = "codeword",
+        weights: list[float] | None = None,
     ) -> None:
         self.code = code
-        self.ebno_dB = ebno_dB
         self.n_batches, self.bs = n_batches, bs
         self.train = train
         self.error_space = error_space
 
+        # normalize ebno_dB to a 1D tensor of length >= 1
+        if isinstance(ebno_dB, (list, tuple)):
+            ebno_list = [float(v) for v in ebno_dB]
+        else:
+            ebno_list = [float(ebno_dB)]
+        if len(ebno_list) == 0:
+            raise ValueError("ebno_dB must contain at least one value")
+        if not train and len(ebno_list) != 1:
+            raise ValueError(
+                f"OnDemandDataset in test mode requires a single ebno_dB; got {ebno_list}"
+            )
+        self.ebno_dB = torch.tensor(ebno_list, dtype=torch.float32)
+
+        # normalize weights to a 1D tensor of length >= 1 summing to 1
+        if weights is None:
+            # uniform sampling — default but not the recommended choice in general
+            self.weights = torch.full(
+                (len(ebno_list),), 1.0 / len(ebno_list), dtype=torch.float32
+            )
+        else:
+            if len(weights) != len(ebno_list):
+                raise ValueError(
+                    f"weights length ({len(weights)}) must match ebno_dB length ({len(ebno_list)})"
+                )
+            w = torch.tensor([float(x) for x in weights], dtype=torch.float32)
+            if torch.any(w < 0):
+                raise ValueError(f"weights must be non-negative; got {weights}")
+            w_sum = w.sum()
+            if w_sum.item() <= 0:
+                raise ValueError(f"weights must have a positive sum; got {weights}")
+            self.weights = w / w_sum
+
     def __getitem__(self, idx: int) -> tuple[Tensor, Tensor, Tensor]:
         if self.train:
-            y, e = generate_random_training_batch(self.code, self.ebno_dB, self.bs)
-            return prepare_data(self.code, y, e, self.error_space)
+            y, e = generate_random_training_batch(
+                self.code, self.ebno_dB, self.weights, self.bs
+            )
         else:
-            y, e = generate_random_test_batch(self.code, self.ebno_dB, self.bs)
-            return prepare_data(self.code, y, e, self.error_space)
+            # test mode is constrained to a single SNR by __init__
+            y, e = generate_random_test_batch(
+                self.code, float(self.ebno_dB[0].item()), self.bs
+            )
+        return prepare_data(self.code, y, e, self.error_space)
 
     def __len__(self) -> int:
         return self.n_batches
@@ -215,6 +295,18 @@ class SBNDDataModule(LightningDataModule):
           (resp. `val_bs`) if necessary, as on-demand data generation requires data size to be a multiple of batch size
         - no data augmentation will be applied, even if `transform` is not None
 
+    On-demand training also supports mixing several SNR points within each batch:
+    pass a list to `ebno_dB_train` (instead of a single float). The optional
+    `ebno_dB_train_weights` argument gives the proportion of samples drawn at each
+    SNR (defaults to uniform; values are normalized to sum to 1).
+    Each sample's SNR is drawn i.i.d. from the resulting categorical distribution
+    at every batch.
+
+    Validation must always run at a single SNR to be meaningful: `ebno_dB_val`
+    selects it. For backward compatibility, when `ebno_dB_train` is a single
+    float, `ebno_dB_val` defaults to that value; when `ebno_dB_train` is a list,
+    `ebno_dB_val` must be specified explicitly.
+
     Test data is always generated on the fly, and can include rx words with a zero syndrome.
     It is possible to pass a list of Eb/N0 values to `ebno_dB_test`, in which case different test datasets will be
     generated, one per SNR value, of size `n_test_samples` each.
@@ -249,18 +341,23 @@ class SBNDDataModule(LightningDataModule):
     train_ds: Dataset
     val_ds: Dataset
     test_ds: list[Dataset]
+    ebno_dB_train: list[float] | None
+    ebno_dB_train_weights: list[float] | None
+    ebno_dB_val: float | None
     ebno_dB_test: list[float]
 
     def __init__(
         self,
         code: LinearCode,
-        ebno_dB_train: float | None = None,
+        ebno_dB_train: float | Iterable[float] | None = None,
+        ebno_dB_train_weights: Iterable[float] | None = None,
         train_file: str | None = None,
         n_train_samples: int = 0,
         train_bs: int = 1024,
         val_file: str | None = None,
         n_val_samples: int = 0,
         val_bs: int = 1024,
+        ebno_dB_val: float | None = None,
         ebno_dB_test: float | Iterable[float] = 0.0,
         n_test_samples: int = 2**20,
         test_bs: int = 1024,
@@ -273,17 +370,17 @@ class SBNDDataModule(LightningDataModule):
         self.code = code
         log.info(f"Instantiating an SBNDDataModule for the {code} code")
 
-        # check arguments
+        # determine training mode and validate mode-specific arguments
         if train_file is None:
             self.on_demand = True
             log.info("Training uses on-demand data")
             if ebno_dB_train is None:
                 raise ValueError(
-                    "A training Eb/N0 value ebno_dB_train must be specified"
+                    "At least one training Eb/N0 value ebno_dB_train must be specified"
                 )
             if n_train_samples == 0:
                 raise ValueError(
-                    "The number of training samples n_train_samples must be specified"
+                    "The number of training samples n_train_samples must be specified and > 0"
                 )
             if val_file is not None:
                 raise ValueError(
@@ -293,31 +390,57 @@ class SBNDDataModule(LightningDataModule):
         else:
             self.on_demand = False
             log.info(f"Training uses the fixed dataset {train_file}")
+            # warn about on-demand-only args that have no effect in fixed-dataset mode
+            if ebno_dB_val is not None:
+                log.warning(
+                    "ebno_dB_val is set but training uses a fixed dataset file; "
+                    "the value will be ignored"
+                )
+            if ebno_dB_train_weights is not None:
+                log.warning(
+                    "ebno_dB_train_weights is set but training uses a fixed "
+                    "dataset file; the value will be ignored"
+                )
 
-        # store arguments
-        self.ebno_dB_train = ebno_dB_train
+        # store non-SNR arguments
         self.train_file, self.n_train_samples, self.train_bs = (
             train_file,
             n_train_samples,
             train_bs,
         )
         self.val_file, self.n_val_samples, self.val_bs = val_file, n_val_samples, val_bs
-        self.ebno_dB_test = ebno_dB_test  # type: ignore[assignment]
         self.n_test_samples, self.test_bs = n_test_samples, test_bs
         self.transform = transform(code) if transform is not None else None
         self.error_space = error_space
         self.extra_args = extra_args if extra_args is not None else {}
         self.save_hyperparameters(
             logger=False
-        )  # ensures init params will be stored in ckpt
+        )  # snapshots __init__ args for ckpt; safe to mutate self attrs below
 
-        # convert ebno_dB_test to python list
-        if isinstance(ebno_dB_test, ListConfig):
-            self.ebno_dB_test = cast(list[float], OmegaConf.to_object(ebno_dB_test))
-        elif isinstance(ebno_dB_test, (list, tuple)):
-            self.ebno_dB_test = [float(v) for v in ebno_dB_test]
+        # coerce list-shaped Hydra args (ListConfig/list/tuple/scalar) into
+        # plain `list[float]`. For training, `OnDemandDataset` is the single
+        # source of truth for SNR/weights validation and for normalizing weights
+        # to sum to 1; we just pass these through to it.
+        self.ebno_dB_test = _to_float_list(ebno_dB_test) or [0.0]
+        self.ebno_dB_train = _to_float_list(ebno_dB_train)
+        self.ebno_dB_train_weights = _to_float_list(ebno_dB_train_weights)
+
+        # resolve the validation SNR — single value required to be meaningful.
+        # Defaults to the training SNR when that is a single value (backward
+        # compatible); must be specified explicitly when training mixes SNRs.
+        if self.on_demand:
+            assert self.ebno_dB_train is not None
+            if ebno_dB_val is not None:
+                self.ebno_dB_val = float(ebno_dB_val)
+            elif len(self.ebno_dB_train) == 1:
+                self.ebno_dB_val = self.ebno_dB_train[0]
+            else:
+                raise ValueError(
+                    "ebno_dB_val must be specified when ebno_dB_train is a list "
+                    "of multiple values (validation requires a single SNR)"
+                )
         else:
-            self.ebno_dB_test = [cast(float, ebno_dB_test)]
+            self.ebno_dB_val = None
 
     def _load_ds(
         self, mat_file: str, n_samples: int, train: bool = False
@@ -410,8 +533,8 @@ class SBNDDataModule(LightningDataModule):
 
                 # defaults to on-demand setup
                 assert self.on_demand
-                # __init__ guarantees ebno_dB_train is set whenever on_demand is True
                 assert self.ebno_dB_train is not None
+                assert self.ebno_dB_val is not None
 
                 # create on-demand training set
                 n_train_batches = self.n_train_samples // self.train_bs
@@ -422,6 +545,7 @@ class SBNDDataModule(LightningDataModule):
                 self.n_train_samples = (
                     n_train_batches * self.train_bs
                 )  # adjust samples count in case of rounding
+
                 self.train_ds = OnDemandDataset(
                     self.code,
                     self.ebno_dB_train,
@@ -429,12 +553,27 @@ class SBNDDataModule(LightningDataModule):
                     self.train_bs,
                     train=True,
                     error_space=self.error_space,
+                    weights=self.ebno_dB_train_weights,
                 )
-                log.info(
-                    f"Created an on-demand training set of {self.n_train_samples} true error patterns at Eb/N0={self.ebno_dB_train} dB"
-                )
+                # log the resulting SNR distribution by reading back the
+                # already-normalized tensors from the dataset
+                snrs = self.train_ds.ebno_dB.tolist()
+                if len(snrs) == 1:
+                    log.info(
+                        f"Created an on-demand training set of {self.n_train_samples} "
+                        f"true error patterns at Eb/N0={snrs[0]} dB"
+                    )
+                else:
+                    weights = self.train_ds.weights.tolist()
+                    mix_str = ", ".join(
+                        f"{snr}dB: {w:.3f}" for snr, w in zip(snrs, weights)
+                    )
+                    log.info(
+                        f"Created an on-demand training set of {self.n_train_samples} "
+                        f"true error patterns at Eb/N0 ∈ {{{mix_str}}} (mixed within batches)"
+                    )
 
-                # create on-demand validation set
+                # create on-demand validation set (always at a single SNR)
                 if self.n_val_samples == 0:
                     # validation set size defaults to 25% of training set
                     self.n_val_samples = self.n_train_samples // 4
@@ -446,14 +585,14 @@ class SBNDDataModule(LightningDataModule):
                 self.n_val_samples = n_val_batches * self.val_bs
                 self.val_ds = OnDemandDataset(
                     self.code,
-                    self.ebno_dB_train,
+                    self.ebno_dB_val,
                     n_val_batches,
                     self.val_bs,
                     train=True,
                     error_space=self.error_space,
                 )
                 log.info(
-                    f"Created an on-demand validation set of {self.n_val_samples} true error patterns at Eb/N0={self.ebno_dB_train} dB"
+                    f"Created an on-demand validation set of {self.n_val_samples} true error patterns at Eb/N0={self.ebno_dB_val} dB"
                 )
 
             return
