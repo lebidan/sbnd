@@ -25,7 +25,7 @@ decoder:
 
 data:  
   _target_: sbnd.data.SBNDDataModule
-  ebno_dB_train: 3.0
+  ebno_dB_train: 4.0
   n_train_samples: 4194304
   train_bs: 4096
   n_val_samples: 524288

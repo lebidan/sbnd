@@ -225,13 +225,13 @@ The stacked GRU decoder is the straightforward implementation of [Bennatan et al
 
 <details><summary>ECCT decoder</summary>
 
-Essentially the verbatim copy of the implementation published in the [original repo](https://github.com/yoniLc/ECCT). The two main changes are the use of PyTorch's [`scaled_dot_product_attention`](https://docs.pytorch.org/docs/stable/generated/torch.nn.functional.scaled_dot_product_attention.html) function to speed up training, and a mask modified to prevent tokens to attend to themselves. The latter was found to slightly improve accuracy in our experiments.
+An almost verbatim port of the official ECCT implementation published in the [original repo](https://github.com/yoniLc/ECCT). The two main changes are the use of PyTorch's [`scaled_dot_product_attention`](https://docs.pytorch.org/docs/stable/generated/torch.nn.functional.scaled_dot_product_attention.html) function to speed up training, and a mask modified to prevent tokens to attend to themselves. The latter was found to slightly improve accuracy in our experiments.
 
 </details>
 
 <details><summary>CrossMPT decoder</summary>
 
-Verbatim copy of the implementation published in the [original repo](https://github.com/iil-postech/crossmpt), with the use of PyTorch's [`scaled_dot_product_attention`](https://docs.pytorch.org/docs/stable/generated/torch.nn.functional.scaled_dot_product_attention.html) function to speed up training.
+An almost verbatim port of the official CrossMPT implementation published in the [original repo](https://github.com/iil-postech/crossmpt), with the use of PyTorch's [`scaled_dot_product_attention`](https://docs.pytorch.org/docs/stable/generated/torch.nn.functional.scaled_dot_product_attention.html) function to speed up training.
 
 </details>
 
@@ -299,7 +299,7 @@ Contributions are welcome. Please open an [issue](https://github.com/lebidan/sbn
 
 ## 🤝 Acknowledgments
 
-Much of this code was developed within the framework of the [ANR-21 AI4CODE project](https://ai4code.projects.labsticc.fr/). Earlier versions of this codebase were used to obtain the results reported in our [ICMLCN 2025 paper](https://arxiv.org/abs/2502.10183) as well as in Chapters 3 and 4 of [Ahmad Ismail PhD thesis](https://theses.fr/2025IMTA0515).
+Much of this code was developed within the framework of the [ANR-21 AI4CODE project](https://ai4code.projects.labsticc.fr/). Earlier versions of this codebase were used to obtain the results reported in our [ICMLCN 2025 paper](https://arxiv.org/abs/2502.10183) as well as some of the results presented in Chapters 3 and 4 of [Ahmad Ismail PhD thesis](https://theses.fr/2025IMTA0515).
 
 The following decoder implementations are adapted from their original authors' code:
 
