@@ -12,6 +12,7 @@ This document is the reference guide for configuring and running training jobs w
    - [On-demand generation](#on-demand-generation)
    - [Pre-computed datasets](#pre-computed-datasets)
    - [Pre-computed dataset format and download](#pre-computed-dataset-format-and-download)
+   - [Mixing on-demand with a fixed dataset](#mixing-on-demand-with-a-fixed-dataset)
    - [Data augmentation](#data-augmentation)
 4. [Model](#model)
 5. [Trainer](#trainer)
@@ -47,7 +48,7 @@ Training and evaluation data are handled by the [`SBNDDataModule`](../src/data.p
 
 > Important note: all the codebase assumes the following binary-to-bipolar BPSK symbol mapping: `0` -> `+1`, `1` -> `-1`.
 
-SBND currently supports two training data strategies, selected by whether a training dataset file is specified (variable `train_file` set) or not (the default).
+SBND currently supports two main training data strategies, selected by whether a training dataset file is specified (variable `train_file` set) or not (the default). But both strategies can also be combined to push further model performance.
 
 ### On-demand generation
 
@@ -79,7 +80,7 @@ data:
   train_bs: 4096
 ```
 
-> **Pick the weights deliberately — the default uniform is rarely the right choice.** High-SNR samples are easy: most of them are corrected with little gradient signal, while low-SNR samples carry most of the information the decoder needs to learn. Uniform sampling therefore over-represents the easy end of the range relative to its training value. As a rule of thumb, skew the weights toward the lower SNR points (e.g. 0.6 / 0.3 / 0.1 on [2 dB, 3 dB, 4 dB]) and tune empirically.
+> **Pick the weights deliberately — the default uniform is rarely the right choice.** Decoder models often deal well with high-SNR samples: most of them are corrected with little gradient signal. Conversely, low-SNR samples can be too hard to learn. Tune empirically to find the right match for your code and operating conditions.
 
 Validation must always run at a single SNR — an error rate measured on a mix of SNR points is not interpretable — so `ebno_dB_val` selects the validation SNR. When `ebno_dB_train` is a single scalar, `ebno_dB_val` defaults to that value (preserving the previous behavior); when `ebno_dB_train` is a list, `ebno_dB_val` must be specified explicitly.
 
@@ -127,6 +128,31 @@ Each dataset is stored as a `.mat` file containing at least the following fields
 `N` is the number of samples and `n` is the code length. Both MATLAB v7 and v7.3 (HDF5) formats are supported.
 
 Additional datasets used to produce the results in our [ICMLCN 2025 paper](https://arxiv.org/abs/2502.10183) are available on the [AI4CODE website](https://ai4code.projects.labsticc.fr/software/) or via their [official DOI](https://doi.org/10.57745/FWE4FB).
+
+### Mixing on-demand with a fixed dataset
+
+The two strategies above can be combined. When both `train_file` and `ebno_dB_train` are set, the DataModule enters a third mode in which each training batch is a random mixture of fixed-dataset samples (with their ML targets) and on-demand samples. This contributes to regularize against dataset memorization and offers the possibility to train models for a very large number of epochs without giving up the ML-target benefit of fixed datasets.
+
+This mode is detected automatically and announced with a warning at startup, so that an unintended combination is hard to miss. If you do not want it, unset either `train_file` or `ebno_dB_train` to switch back to one of the two regular training modes.
+
+```yaml
+data:
+  _target_: sbnd.data.SBNDDataModule
+  train_file: ${data_dir}/bch-63-45/train-ml-4M-2dB.mat
+  ebno_dB_train: 2.0                 # or [2.0, 3.0, 4.0] with weights, like in pure on-demand mode
+  on_demand_ratio: 0.5               # default; expected fraction of each batch that is on-demand
+  train_bs: 4096
+```
+
+`on_demand_ratio ∈ [0, 1)` is the only mix-control parameter and reads directly as a percentage. Internally the DataModule sizes the on-demand side as `n_on_demand = round(n_train_samples × ratio / (1 - ratio))` rounded down to a multiple of `train_bs`, then concatenates it with the fixed-dataset side and lets the standard `DataLoader(shuffle=True)` interleave samples per batch. Per-batch composition therefore varies randomly from batch to batch, with a small binomial variance around the target ratio (negligible for typical batch sizes ≥ 1024).
+
+The total epoch length grows accordingly — with `ratio = 0.5`, an epoch is twice as many gradient steps as the fixed-dataset-only baseline, traversing both the full fixed file and an equal-sized on-demand pool.
+
+A few things to keep in mind:
+- **Validation is unchanged.** It still uses either the random split of `train_file` or the explicit `val_file`. `ebno_dB_val` has no effect in mixed mode and is ignored with a warning.
+- **Augmentation only applies to the fixed dataset samples.** The `transform` is a property of the fixed dataset; on-demand samples are already fresh and never augmented.
+- **Multi-SNR mixing on the on-demand half works as in pure on-demand mode.** Pass a list to `ebno_dB_train` and an optional `ebno_dB_train_weights`.
+- **Memory cost is essentially that of the fixed file.** The on-demand side is stateless (each DataLoader worker keeps a small per-call buffer; tens of KB).
 
 ### Data augmentation
 
