@@ -80,13 +80,13 @@ Configuration file to reproduce the rECCT results: [here](https://github.com/leb
 
 <img alt="Polar(128,64,8) performance" src="https://raw.githubusercontent.com/lebidan/sbnd/main/media/fer_polar_128_64.png?raw=true" width=90%>
 
-- The rECCT model with 652K params is within 0.2 dB of Successive-Cancellation List decoding with list size 8 (SCL-8)
-- Adding test-time scaling outperforms SCL-8, eventually reaching MLD performance at 5 dB
-- The two [TTS variants](./docs/evaluation.md#3-test-time-scaling), Self-Boosting and Test-Time Augmentation, show complementary behaviors at low and high SNRs, respectively
+- The rECCT model is within 0.2 dB of Successive-Cancellation List decoding with list size 8 (SCL-8)
+- [Test-time scaling](./docs/evaluation.md#3-test-time-scaling) outperforms SCL-8, eventually reaching MLD performance at 5 dB
+- Self-Boosting and Test-Time Augmentation exhibit complementary behaviors at low and high SNRs, respectively
 
 This Polar code was designed at [RPTU](https://rptu.de/channel-codes/channel-codes-database/polar-codes). 
 
-Configuration file to reproduce the rECCT results: [here](https://github.com/lebidan/sbnd/blob/main/conf/exp/recct-polar-rptu-128-64-on-demand-4dB.yaml). The model was first trained at 4 dB for 512 epochs, then fine-tuned for 512 more epochs at 3 dB with a smaller learning rate, using the [`+continue` command-line option](./docs/training.md#resuming-and-continuing-training).
+The rECCT model was first trained with on-demand data at 4 dB for 512 epochs [config](https://github.com/lebidan/sbnd/blob/main/conf/exp/recct-polar-rptu-128-64-on-demand-4dB.yaml), then fine-tuned for 256 additional epochs on a dataset of 4M ML error patterns with data augmentation at 3 dB [config](https://github.com/lebidan/sbnd/blob/main/conf/exp/recct-polar-rptu-128-64-ml-4m-3dB-aug.yaml) using the [`+continue` command-line option](./docs/training.md#resuming-and-continuing-training).
 
 </details>
 
@@ -267,13 +267,13 @@ To implement your own decoder, inherit from `BaseDecoder` and use [`src/mocked.p
 
 ### Decoding modes
 
-SBND supports two decoding modes, selected via the shared `error_space` parameter on both the decoder and the datamodule (they must agree, and a mismatch is caught at `trainer.fit` start):
+SBND supports two decoding modes, selected via the shared `error_space` parameter on both the decoder and the datamodule:
 
 1. **Codeword-level decoding** (`error_space: "codeword"`, default) — the standard SBND setup. The decoder is trained to predict the full n-bit error pattern `e_cw = c - c_hat` where `c` is the transmitted codeword and `c_hat` is the decoder decision on `c`.. Evaluation reports the **WER on the decoded codeword** and the **BER on the decoded message**, with the codeword-to-message mapping inverted via `Ginv` when the code is non-systematic.
 
 2. **Message-level decoding** (`error_space: "message"`), which we abbreviate as **iSBND** (information-based SBND), proposed in [De Boni Rovella & Benammar, GLOBECOM 2023](https://arxiv.org/abs/2402.13948). The decoder directly estimates the k-bit error pattern on the information message, computed as `e_msg = Ginv · e_cw`. This mode is particularly well-suited to non-systematic codes, but can also bring a small WER gain on systematic codes: it is generally slightly easier for the model to learn the partial error pattern restricted to the first or last k bits of the codeword (the message part), than the full n-bit error pattern. For models trained in iSBND mode, evaluation reports both **WER and BER on the decoded message**.
 
-Both the decoder and the datamodule default to `"codeword"`, so standard SBND experiments need no extra config. To switch to iSBND mode, set `error_space: "message"` on both the `decoder:` and `data:` blocks of your experiment config. See for example this [Reed-Muller decoding experiment](https://github.com/lebidan/sbnd/blob/main/conf/exp/recct-rm-32-16-ml-4m-3dB.yaml).
+Both the decoder and the datamodule default to `"codeword"`, so standard SBND experiments need no extra config. To switch to iSBND mode, set `error_space: "message"` on both the `decoder:` and `data:` blocks of your experiment config (settings must agree, and a mismatch is caught at `trainer.fit` start). See for example this [Reed-Muller decoding experiment](https://github.com/lebidan/sbnd/blob/main/conf/exp/recct-rm-32-16-ml-4m-3dB.yaml).
 
 ## 📚 Documentation
 
