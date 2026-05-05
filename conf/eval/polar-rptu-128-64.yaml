@@ -10,11 +10,15 @@ batch_size: 8192
 num_batches: 8192
 num_workers: 12
 
-tts:
-  _target_: sbnd.tts.TTADecoder
-  num_perms: 8
-  transform:
-    _partial_: true
-    _target_: sbnd.transforms.GenericPerms
-    mat_file: ${perms_dir}/perms.polar.128.mat
-    num_perms: 1024
+# tts:
+#   _target_: sbnd.tts.TTADecoder
+#   num_perms: 8
+#   transform:
+#     _partial_: true
+#     _target_: sbnd.transforms.GenericPerms
+#     mat_file: ${perms_dir}/perms.polar.128.mat
+#     num_perms: 1024
+
+# tts:
+#   _target_: sbnd.tts.SelfBoostingDecoder
+#   num_iters: 8

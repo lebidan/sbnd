@@ -250,14 +250,14 @@ Two flags control how an existing checkpoint is consumed by `sbnd-train`:
 
   ```
   sbnd-train exp=ecct-bch-63-45-ml-4m-2dB-aug \
-    resume=log/train/runs/.../checkpoints/last.ckpt
+    +resume=log/train/runs/.../checkpoints/last.ckpt
   ```
 
 * **`continue=<path>`** — start a new training run using a pre-trained model as initialization. The model weights are loaded from the checkpoint, but the optimizer, scheduler, and other training parameters are taken from the current config:
 
   ```
   sbnd-train exp=ecct-bch-63-45-ml-4m-2dB-aug \
-    continue=log/train/runs/.../checkpoints/best.ckpt \
+    +continue=log/train/runs/.../checkpoints/best.ckpt \
     lr=0.0001 max_epochs=128
   ```
 

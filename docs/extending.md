@@ -15,7 +15,9 @@ This document collects the conventions and contracts to follow when adding new c
 
 ## 1. Adding a decoder architecture
 
-SBND decoders share a common abstract base class, [`BaseDecoder`](../src/decoder.py), which fixes the input/output contract and centralizes a small amount of boilerplate (output-size derivation, the example input array used by Lightning's model summary, optional `torch.compile` activation). To add a new architecture, subclass `BaseDecoder`, implement `forward(ym, s)`, and follow the conventions below.
+SBND decoders share a common abstract base class, [`BaseDecoder`](../src/decoder.py), which fixes the input/output contract and centralizes a small amount of boilerplate (output-size derivation, the example input array used by Lightning's model summary, optional `torch.compile` activation). 
+
+To add a new architecture, subclass `BaseDecoder`, implement `forward(ym, s)`, and follow the conventions below.
 
 The minimal working example shipped with SBND is [`MockedDecoder`](../src/mocked.py): a single linear layer mapping the concatenation of the input magnitude and syndrome vectors to the predicted error pattern. We recommend using it as a starting template.
 

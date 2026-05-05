@@ -34,7 +34,7 @@ Syndrome-Based Neural Decoding
 
 Syndrome-based neural decoding is a promising approach for soft-decision decoding of short, high-rate codes, but the field is still wide open. Performance lags behind classical decoders like OSD or Chase-2, scaling laws are poorly understood, and more parameter-efficient architectures are yet to be found.
 
-`SBND` is built for researchers who want to close that gap. It ships with multiple architectures, reproducible baselines, and a clean training infrastructure — everything you need to run experiments, test new ideas, and push neural decoders further than they've been before. 
+`SBND` is built for researchers who want to close that gap. It ships with multiple architectures, reproducible baselines, and a clean training infrastructure — everything you need to run experiments, test new ideas, and push neural decoders further than they've been before. You are what you eat. So is your model. Feed it the best menu with `SBND` 🍽️ 
 
 <b> ⭐ Performance highlights ⭐</b>
 
@@ -67,12 +67,26 @@ Configuration file to reproduce the rECCT results: [here](https://github.com/leb
 
 <img alt="QC-LDPC(96,48,10) performance" src="https://raw.githubusercontent.com/lebidan/sbnd/main/media/fer_96_48.png?raw=true" width=90%>
 
-- High-SNR WER performance within 1.0 dB or less of MLD (but still *much room left for improvement*)
+- High-SNR WER performance within 1.0 dB or less of MLD (but still **much room left for improvement**)
 - Matches or outperforms BP with 100 iterations
 
 This very nice and strong short quasi-cyclic LDPC code was designed at [RPTU](https://rptu.de/channel-codes/channel-codes-database/more-ldpc-codes#c94700) and used as example in their [Saturated Min-Sum decoding](https://www.date-conference.com/proceedings-archive/2016/pdf/0760.pdf) DATE 2016 paper. 
 
 Configuration file to reproduce the rECCT results: [here](https://github.com/lebidan/sbnd/blob/main/conf/exp/recct-ldpc-rptu-96-48-on-demand-3dB.yaml)
+
+</details>
+
+<details><summary>Decoding a (128,64,8) Polar code w./wo test-time scaling</summary>
+
+<img alt="Polar(128,64,8) performance" src="https://raw.githubusercontent.com/lebidan/sbnd/main/media/fer_polar_128_64.png?raw=true" width=90%>
+
+- The rECCT model with 652K params is within 0.2 dB of Successive-Cancellation List decoding with list size 8 (SCL-8)
+- Adding test-time scaling outperforms SCL-8, eventually reaching MLD performance at 5 dB
+- The two [TTS variants](./docs/evaluation.md#3-test-time-scaling), Self-Boosting and Test-Time Augmentation, show complementary behaviors at low and high SNRs, respectively
+
+This Polar code was designed at [RPTU](https://rptu.de/channel-codes/channel-codes-database/polar-codes). 
+
+Configuration file to reproduce the rECCT results: [here](https://github.com/lebidan/sbnd/blob/main/conf/exp/recct-polar-rptu-128-64-on-demand-4dB.yaml). The model was first trained at 4 dB for 512 epochs, then fine-tuned for 512 more epochs at 3 dB with a smaller learning rate, using the [`+continue` command-line option](./docs/training.md#resuming-and-continuing-training).
 
 </details>
 
@@ -194,6 +208,8 @@ sbnd-test model=/path/to/my-model.ckpt eval=bch-31-21
 
 A collection of standard BCH, extended BCH, QC-LDPC, Reed-Muller and Polar codes are shipped in [`data/codes/`](https://github.com/lebidan/sbnd/tree/main/data/codes). Any linear code can be used by providing a MATLAB `.mat` file with the following fields:
 
+<details><summary>Code file format</summary>
+
 | Field | Required | Description |
 | --- | --- | --- |
 | `n` | ✓ | Code length |
@@ -205,6 +221,8 @@ A collection of standard BCH, extended BCH, QC-LDPC, Reed-Muller and Polar codes
 | `name` |  | Code family name (defaults to `"Linear"`) |
 
 Reed-Muller and Polar codes are examples of codes with a non-systematic encoder and for which the code file includes a reverse-encoding matrix `Ginv`.
+
+</details>
 
 ### Decoder architectures
 
@@ -241,7 +259,9 @@ The rECCT decoder is a recurrent implementation of ECCT which can reach comparab
 
 </details>
 
-All decoders inherit from the abstract [`BaseDecoder`](https://github.com/lebidan/sbnd/blob/main/src/decoder.py) class in [`src/decoder.py`](https://github.com/lebidan/sbnd/blob/main/src/decoder.py), which defines the shared interface: `forward(ym, s) → logits`, where `ym` is the normalized channel magnitude `|y|/max(|y|)`, `s` is the bipolar syndrome vector, and `logits` is the decoder prediction of the target error pattern. `BaseDecoder` also centralizes the common constructor arguments (`code`, `error_space`, `compile`) and the standard attributes (`output_sz`, `example_input_array`) — see the header of [`src/decoder.py`](https://github.com/lebidan/sbnd/blob/main/src/decoder.py) for the full API description, including the meaning of `error_space` and the convention of calling `self._maybe_compile()` last in the subclass `__init__`.
+<br>
+
+All decoders inherit from the abstract [`BaseDecoder`](https://github.com/lebidan/sbnd/blob/main/src/decoder.py) class in [`src/decoder.py`](https://github.com/lebidan/sbnd/blob/main/src/decoder.py), which defines the shared interface: `forward(ym, s) → logits`, where `ym` is the normalized channel magnitude `|y|/max(|y|)`, `s` is the bipolar syndrome vector, and `logits` is the decoder prediction of the target error pattern. 
 
 To implement your own decoder, inherit from `BaseDecoder` and use [`src/mocked.py`](src/mocked.py) as a minimal starting template — see [docs/extending.md](docs/extending.md) for the full description of the interface and conventions.
 
