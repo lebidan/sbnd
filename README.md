@@ -188,13 +188,13 @@ Training artifacts (Hydra config, logs, checkpoints) are saved under `./log/trai
 `sbnd-test` evaluates a trained checkpoint through Monte-Carlo simulation over a range of Eb/N0 values, reporting **Word Error Rate (WER)** and **Bit Error Rate (BER)** at each SNR point. A first evaluation pass requires only the model checkpoint:
 
 ```
-sbnd-test model=/path/to/my-model.ckpt
+sbnd-test /path/to/my-model.ckpt
 ```
 
 Repeated evaluations with the same set of options can be grouped into a preset under [`conf/eval/`](conf/eval) and selected with `eval=<name>`:
 
 ```
-sbnd-test model=/path/to/my-model.ckpt eval=bch-31-21
+sbnd-test /path/to/my-model.ckpt eval=bch-31-21
 ```
 
 `sbnd-test` also supports hard-decision decoding emulation (the `hdd` flag) and two test-time scaling variants — sequential **self-boosting** and parallel **test-time augmentation** — that exchange extra inference compute for lower error rates.

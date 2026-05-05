@@ -1,6 +1,6 @@
 # Evaluate the test performance of a trained SBND model through Monte Carlo simulations.
 
-import os, csv, pathlib
+import os, sys, csv, pathlib
 import torch, hydra
 
 from hydra.utils import instantiate
@@ -214,7 +214,7 @@ _conf_dir = os.path.join(os.getcwd(), "conf")
 
 
 @hydra.main(version_base="1.3", config_path=_conf_dir, config_name="test")
-def main(cfg: DictConfig) -> None:
+def _main(cfg: DictConfig) -> None:
 
     # Load model first (code path is stored in its hparams)
     model_file = cfg.model
@@ -297,6 +297,28 @@ def main(cfg: DictConfig) -> None:
         showindex=False,
     )
     log.info(f"Results:\n{table}\n")
+
+
+def main() -> None:
+    """Console-script entry point.
+
+    For convenience, we want to be able to pass the model checkpoint <ckpt> 
+    as the first positional argument, without needing to specify `model=<ckpt>` 
+    explicitly. However Hydra has no notion of positional args, so we have
+    to hack around it by manually inspecting sys.argv: we rewrite the first
+    positional argument into a `model=<ckpt>` override (see conf/test.yaml) 
+    before handing off to Hydra. The first arg is treated as a model path when
+    it doesn't look like a Hydra override (no '='), an addition/removal 
+    directive ('+'/'~'), or a flag ('-'/'--'). Everything else is left 
+    untouched to make sure overriding other parameters still work as expected.
+    """
+    if len(sys.argv) >= 2:
+        first = sys.argv[1]
+        # If the first arg doesn't look like a Hydra override, rewrite it 
+        # as a model path override in the form `model=<ckpt>`.
+        if not (first.startswith(("+", "~", "-")) or "=" in first):
+            sys.argv[1] = f"model={first}"
+    _main()
 
 
 if __name__ == "__main__":

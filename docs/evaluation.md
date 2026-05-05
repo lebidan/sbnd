@@ -27,22 +27,22 @@ This document describes how to evaluate a trained SBND model with `sbnd-test`. I
 Like `sbnd-train`, evaluation is configured with [Hydra](https://hydra.cc/). The base config [`conf/test.yaml`](../conf/test.yaml) ships with sensible Monte-Carlo defaults, so a first evaluation pass requires only the model checkpoint:
 
 ```
-sbnd-test model=/path/to/my-model.ckpt
+sbnd-test /path/to/my-model.ckpt
 ```
 
-where the checkpoint typically lives at `./log/train/runs/YYYY-MM-DD_HH-MM-SS/checkpoints/<exp-file-name>-<max_epochs>epochs-<wandb-run-name>.ckpt`.
+where the checkpoint typically lives at `./log/train/runs/YYYY-MM-DD_HH-MM-SS/checkpoints/<exp-file-name>-<max_epochs>epochs-<wandb-run-name>.ckpt`. The first positional argument is rewritten to `model=<path>` for Hydra, meaning the explicit `model=/path/to/my-model.ckpt` form is also valid.
 
 Any field can be overridden directly on the command line:
 
 ```
-sbnd-test model=/path/to/my-model.ckpt \
+sbnd-test /path/to/my-model.ckpt \
   snr_min=1 snr_max=5 snr_step=0.5 num_batches=8192 batch_size=4096
 ```
 
 For repeated evaluations with the same set of options, group them into a preset under [`conf/eval/`](../conf/eval) and select it with `eval=<name>` (e.g. one preset per code):
 
 ```
-sbnd-test model=/path/to/my-model.ckpt eval=my-eval-config
+sbnd-test /path/to/my-model.ckpt eval=my-eval-config
 ```
 
 A few presets for the codes shipped with SBND are available in [`conf/eval/`](../conf/eval). You may need to adjust the batch size and number of batches to match your GPU.
@@ -76,7 +76,7 @@ HDD emulation requires:
 * a model trained with `error_space=codeword` (codeword-level error counting is required to evaluate the bounded-distance condition).
 
 ```
-sbnd-test model=/path/to/my-model.ckpt eval=bch-31-21 hdd=true
+sbnd-test /path/to/my-model.ckpt eval=bch-31-21 hdd=true
 ```
 
 Output: results are written to `<model>-hdd.csv`. HDD is orthogonal to TTS and may be combined with it — see [Combining TTS with HDD](#combining-tts-with-hdd).
@@ -98,7 +98,7 @@ tts:
 ```
 
 ```
-sbnd-test model=/path/to/my-model.ckpt eval=bch-31-21 \
+sbnd-test /path/to/my-model.ckpt eval=bch-31-21 \
   tts._target_=sbnd.tts.SelfBoostingDecoder +tts.num_iters=10
 ```
 
@@ -133,7 +133,7 @@ tts:
 The `_partial_: true` pattern lets Hydra inject the loaded `code` into the transform at decode time, mirroring the training-time data-augmentation setup.
 
 ```
-sbnd-test model=/path/to/my-model.ckpt eval=bch-31-21 \
+sbnd-test /path/to/my-model.ckpt eval=bch-31-21 \
   tts._target_=sbnd.tts.TTADecoder +tts.num_perms=8 \
   +tts.transform._target_=sbnd.transforms.BCHPerms \
   +tts.transform._partial_=true
@@ -146,7 +146,7 @@ Output: results are written to `<model>-tta<num_perms>.csv` (e.g. `<model>-tta4.
 The HDD flag is independent of the TTS strategy: it acts as a post-processing filter on the error counts and may be combined with any TTS variant. The two suffixes accumulate in the output filename, e.g. `<model>-sb5-hdd.csv` or `<model>-tta4-hdd.csv`.
 
 ```
-sbnd-test model=/path/to/my-model.ckpt eval=bch-31-21 \
+sbnd-test /path/to/my-model.ckpt eval=bch-31-21 \
   hdd=true \
   tts._target_=sbnd.tts.SelfBoostingDecoder +tts.num_iters=5
 ```
