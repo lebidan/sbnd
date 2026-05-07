@@ -11,7 +11,7 @@ Syndrome-Based Neural Decoding
 <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.10%2B-blue" alt="Python 3.10+"/></a>
 <a href="https://pytorch.org/"><img src="https://img.shields.io/badge/PyTorch-2.9%2B-orange" alt="PyTorch 2.9+"/></a>
 <a href="https://github.com/lebidan/sbnd/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License: MIT"/></a>
-<img src="https://img.shields.io/badge/version-0.1.0-lightgrey" alt="Version"/>
+<img src="https://img.shields.io/badge/version-0.2.0-lightgrey" alt="Version"/>
 </p>
 <p align="center">
 <a href="#-why-sbnd">Overview</a> |
@@ -32,9 +32,11 @@ Syndrome-Based Neural Decoding
 
 ## 👀 Why SBND? 
 
-Syndrome-based neural decoding is a promising approach for soft-decision decoding of short, high-rate codes, but the field is still wide open. Performance lags behind classical decoders like OSD or Chase-2, scaling laws are poorly understood, and more parameter-efficient architectures are yet to be found.
+Syndrome-based neural decoding is a promising approach for soft-decision decoding of short, high-rate codes, but the field is still wide open. Performance often lags behind classical decoders like OSD or Chase-2, scaling laws are poorly understood, and more parameter-efficient architectures are yet to be found.
 
-`SBND` is built for researchers who want to close that gap. It ships with multiple architectures, reproducible baselines, and a clean training infrastructure — everything you need to run experiments, test new ideas, and push neural decoders further than they've been before. You are what you eat. So is your model. Feed it the best menu with `SBND` 🍽️ 
+`SBND` is built for researchers who want to close that gap. It ships with multiple architectures, reproducible baselines facilitating benchmarking, a flexible data pipeline, and a clean training infrastructure — everything you need to run experiments, test new ideas, and push neural decoders further than ever before.
+
+You are what you eat. So is your model. Feed it the best menu with `SBND` 🍽️
 
 <b> ⭐ Performance highlights ⭐</b>
 
@@ -46,7 +48,13 @@ Syndrome-based neural decoding is a promising approach for soft-decision decodin
 - Same or better performance with half the number of parameters when switching to our recurrent ECCT model
 - Performance is within 0.2 dB of MLD and matches Chase-2 decoding with 64 test patterns
 
-Configuration files for the above experiments: [original/improved ECCT training](https://github.com/lebidan/sbnd/blob/main/conf/exp/ecct-bch-63-45-on-demand-2dB.yaml), [rECCT training](https://github.com/lebidan/sbnd/blob/main/conf/exp/recct-bch-63-45-ml-4m-2dB-aug.yaml)
+| Configuration file | Evaluation log |
+| --- | --- |
+| [ECCT with original training](https://github.com/lebidan/sbnd/blob/main/conf/exp/ecct-bch-63-45-on-demand-2dB.yaml) | [128 epochs](https://github.com/lebidan/sbnd/blob/main/log/test/ecct-bch-63-45-on-demand-2dB-128epochs-faithful-frost-1882.csv) |
+| [ECCT with improved training](https://github.com/lebidan/sbnd/blob/main/conf/exp/ecct-bch-63-45-ml-4m-2dB-aug.yaml) | [512 epochs](https://github.com/lebidan/sbnd/blob/main/log/test/ecct-bch-63-45-ml-4m-2dB-aug-512epochs-proud-star-1898.csv) |
+| [rECCT](https://github.com/lebidan/sbnd/blob/main/conf/exp/recct-bch-63-45-ml-4m-2dB-aug.yaml) | [512 epochs](https://github.com/lebidan/sbnd/blob/main/log/test/recct-bch-63-45-ml-4m-2dB-aug-512epochs-fiery-plant-1871.csv) |
+
+Note: The first experiment closely follows the original training setup from [Choukroun & Wolf, 2022](https://arxiv.org/abs/2206.14881), using a total of 128M samples generated on-demand. The evaluation results (not shown in the above figure) are slightly better than those reported in Table 1 of the paper, with differences in batch size, learning rate, and the use of a single training SNR value in our setup.
 
 </details>
 
@@ -59,7 +67,9 @@ Configuration files for the above experiments: [original/improved ECCT training]
 
 Note: The comparison between results for the (31,16,7) and (32,16,8) codes is reasonable as both codes have very close MLD performance down to WER = 1E-4. The extended code progressively takes over at high SNRs. Compare with the results in Table 3 and Fig. 11 from [the CrossMPT ICLR 2025 paper](https://openreview.net/forum?id=gFvRRCnQvX).
 
-Configuration file to reproduce the rECCT results: [here](https://github.com/lebidan/sbnd/blob/main/conf/exp/recct-ebch-32-16-ml-16m-3dB.yaml)
+| Configuration file | Evaluation log |
+| --- | --- |
+| [rECCT](https://github.com/lebidan/sbnd/blob/main/conf/exp/recct-ebch-32-16-ml-16m-3dB.yaml) | [128 epochs](https://github.com/lebidan/sbnd/blob/main/log/test/recct-ebch-32-16-ml-16m-3dB-128epochs-genial-sponge-1922.csv) |
 
 </details>
 
@@ -72,7 +82,9 @@ Configuration file to reproduce the rECCT results: [here](https://github.com/leb
 
 This very nice and strong short quasi-cyclic LDPC code was designed at [RPTU](https://rptu.de/channel-codes/channel-codes-database/more-ldpc-codes#c94700) and used as example in their [Saturated Min-Sum decoding](https://www.date-conference.com/proceedings-archive/2016/pdf/0760.pdf) DATE 2016 paper. 
 
-Configuration file to reproduce the rECCT results: [here](https://github.com/lebidan/sbnd/blob/main/conf/exp/recct-ldpc-rptu-96-48-on-demand-3dB.yaml)
+| Configuration file | Evaluation log |
+| --- | --- |
+| [rECCT](https://github.com/lebidan/sbnd/blob/main/conf/exp/recct-ldpc-rptu-96-48-on-demand-3dB.yaml) | [512 epochs](https://github.com/lebidan/sbnd/blob/main/log/test/recct-ldpc-rptu-96-48-on-demand-3dB-512epochs-zany-star-1923.csv) |
 
 </details>
 
@@ -80,13 +92,27 @@ Configuration file to reproduce the rECCT results: [here](https://github.com/leb
 
 <img alt="Polar(128,64,8) performance" src="https://raw.githubusercontent.com/lebidan/sbnd/main/media/fer_polar_128_64.png?raw=true" width=90%>
 
-- The rECCT model is within 0.2 dB of Successive-Cancellation List decoding with list size 8 (SCL-8)
-- [Test-time scaling](./docs/evaluation.md#3-test-time-scaling) outperforms SCL-8, eventually reaching MLD performance at 5 dB
-- Self-Boosting and Test-Time Augmentation exhibit complementary behaviors at low and high SNRs, respectively
+- rECCT closely matches Successive-Cancellation List decoding with list size 8 up to 5 dB (see Note below)
+- [Test-time scaling](./docs/evaluation.md#3-test-time-scaling) yields a notable performance boost
+- Self-Boosting and Test-Time Augmentation perform comparably, with a slight advantage for Self-Boosting at low SNRs
 
-This Polar code was designed at [RPTU](https://rptu.de/channel-codes/channel-codes-database/polar-codes). 
+This Polar code was designed at [RPTU](https://rptu.de/channel-codes/channel-codes-database/polar-codes). It has a relatively low minimum distance for its parameters — the RM and BCH codes of the same length and dimension have minimum distance 16 and 22, respectively — which makes it easier to decode. Yet the model performs surprisingly well given the astronomical size of its syndrome space and the fact that it only sees a tiny fraction of it during training.
 
-The rECCT model was first trained with on-demand data at 4 dB for 512 epochs [config](https://github.com/lebidan/sbnd/blob/main/conf/exp/recct-polar-rptu-128-64-on-demand-4dB.yaml), then fine-tuned for 256 additional epochs on a dataset of 4M ML error patterns with data augmentation at 3 dB [config](https://github.com/lebidan/sbnd/blob/main/conf/exp/recct-polar-rptu-128-64-ml-4m-3dB-aug.yaml) using the [`+continue` command-line option](./docs/training.md#resuming-and-continuing-training).
+1. On-demand data at 4 dB for 512 epochs;
+2. A dataset of 4M ML error patterns with data augmentation at 3 dB for 256 epochs; the resulting model matches or outperforms SCL-8 up to 5 dB, but shows a performance kink beyond that point;
+3. On-demand data at 5 dB for 64 epochs to recover high-SNR performance at the cost of a slight low-SNR degradation.
+
+The [`+continue` command-line option](./docs/training.md#resuming-and-continuing-training) was used to continue training from one step to the next. 
+
+| Configuration file | Evaluation log |
+| --- | --- |
+| [rECCT, step 1](https://github.com/lebidan/sbnd/blob/main/conf/exp/recct-polar-rptu-128-64-on-demand-4dB.yaml) | [eval step 1](https://github.com/lebidan/sbnd/blob/main/log/test/recct-polar-rptu-128-64-on-demand-4dB-512epochs-atomic-yogurt-1978.csv) |
+| [rECCT, step 2](https://github.com/lebidan/sbnd/blob/main/conf/exp/recct-polar-rptu-128-64-ml-4m-3dB-aug.yaml) | [eval step 2](https://github.com/lebidan/sbnd/blob/main/log/test/recct-polar-rptu-128-64-ml-4m-3dB-aug-256epochs-sith-nerf-herder-1986.csv) |
+| [rECCT, step 3](https://github.com/lebidan/sbnd/blob/main/conf/exp/recct-polar-rptu-128-64-on-demand-5dB.yaml) | [eval step 3](https://github.com/lebidan/sbnd/blob/main/log/test/recct-polar-rptu-128-64-on-demand-5dB-64epochs-carbonite-cruiser-1989.csv) |
+
+ > **Note:** Step 3 fine-tuning still has room for improvement. With a better training data mix, we expect the residual performance gap at high SNR to disappear without hurting low-SNR performance.
+
+Companion TTS evaluation logs: [self-boosting (8 iters)](https://github.com/lebidan/sbnd/blob/main/log/test/recct-polar-rptu-128-64-on-demand-5dB-64epochs-carbonite-cruiser-1989-sb8.csv), [test-time augmentation (8 perms)](https://github.com/lebidan/sbnd/blob/main/log/test/recct-polar-rptu-128-64-on-demand-5dB-64epochs-carbonite-cruiser-1989-tta8.csv).
 
 </details>
 
@@ -97,7 +123,7 @@ The rECCT model was first trained with on-demand data at 4 dB for 512 epochs [co
 * **Two decoding modes** — standard codeword-level SBND, or message-level [iSBND](https://arxiv.org/abs/2402.13948) for non-systematic codes
 * **Hydra configuration** — every aspect of training is configurable via composable YAML files
 * **Flexible data pipeline** — train on pre-computed datasets, generate noisy codewords on the fly (with optional multi-SNR sampling), or mix both within each batch
-* **Data augmentation** — leverage code automorphisms to increase training diversity
+* **Data augmentation** — [leverage code automorphisms](https://arxiv.org/abs/2605.03620) to increase training diversity
 * **Multi-GPU** — distributed training via PyTorch Lightning DDP
 * **Monte Carlo evaluation** — evaluate trained models over configurable Eb/N0 ranges with BER/WER reporting
 * **Test-time scaling** — boost decoding performance at inference with sequential (self-boosting) or parallel (test-time augmentation) variants

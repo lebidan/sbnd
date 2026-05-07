@@ -29,3 +29,4 @@ These are the source of truth — read them rather than rely on guesses, and kee
 1. Write a small smoke test appropriate to the change to confirm it works. If training is needed, prefer on-demand data; the `conf/exp/dev-test-*.yaml` experiments are good starting points / inspiration when working on a model.
 2. Run `.venv/bin/black src/` and `.venv/bin/mypy src/`; both must be clean.
 3. Update the relevant `docs/*.md` (and `README.md` if needed) when the change is user-visible.
+4. Keep comments clear and concise, the code should speak for itself. Document quirks, gotchas, and caveats.

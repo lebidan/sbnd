@@ -117,6 +117,7 @@ Pre-computed training datasets are too large to ship with the repository. Most o
 | eBCH(32,16,8) | 4M training + 512K validation samples at Eb/N0 = 3 dB | ~1 GB | [Download](https://sdrive.cnrs.fr/s/fx7kN9s5MwZfi35) |
 | BCH(31,21,5) | 4M training + 512K validation samples at Eb/N0 = 3 dB | ~1 GB | [Download](https://sdrive.cnrs.fr/s/bKBHagxAwLiNNzn) |
 | BCH(63,45,7) | 4M training + 512K validation samples at Eb/N0 = 2 dB | ~2.2 GB | [Download](https://sdrive.cnrs.fr/s/wMDN6beY2Gnb7rg) |
+| Polar(128,64,8) | 4M training + 512K validation samples at Eb/N0 = 3 dB | ~4.4 GB | [Download](https://sdrive.cnrs.fr/s/sdkG86Terq5KCLr) |
 
 Each dataset is stored as a `.mat` file containing at least the following fields:
 
@@ -177,7 +178,7 @@ For `GenericPerms`, the `.mat` file must contain a `perms` field of shape `(n_pe
 | File | Code | Number of permutations |
 | --- | --- | --- |
 | `perms.rm.32.mat` | RM(32, k) for any k | 1024 |
-| `perms.polar.128.mat` | Polar(128, k) for any k | 4096 |
+| `perms.polar.128.mat` | Polar(128, k) for any k | 1024 |
 
 ```yaml
 data:
