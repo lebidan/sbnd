@@ -23,9 +23,9 @@ Conventions:
 
 ## BCH (31, 21, 5)
 
-Code file: [`bch.31.21.mat`](../data/codes/bch.31.21.mat). All experiments use the 4M-sample ML dataset (`train-ml-4M-3dB.mat`) or its 16M / permuted variants.
+Code file: [`bch.31.21.mat`](../data/codes/bch.31.21.mat). All experiments use the 4M-sample ML dataset [`train-ml-4M-3dB.mat`](https://sdrive.cnrs.fr/s/bKBHagxAwLiNNzn) (see [Pre-computed dataset format and download](training.md#pre-computed-dataset-format-and-download)) or its 16M / permuted variants. The 16M dataset can be download from [this link](https://ai4code.projects.labsticc.fr/software/).
 
-### Dataset
+### Experiments with a pre-computed dataset
 
 | Decoder | Training data | Epochs | Eval log |
 | --- | --- | --- | --- |
@@ -46,9 +46,9 @@ Code file: [`bch.31.21.mat`](../data/codes/bch.31.21.mat). All experiments use t
 
 ## BCH (63, 45, 7)
 
-Code file: [`bch.63.45.mat`](../data/codes/bch.63.45.mat).
+Code file: [`bch.63.45.mat`](../data/codes/bch.63.45.mat). Dataset for the dataset-based experiments below: [`train-ml-4M-2dB.mat`](https://sdrive.cnrs.fr/s/wMDN6beY2Gnb7rg) (see [Pre-computed dataset format and download](training.md#pre-computed-dataset-format-and-download)). Larger ML datasets can also be downloaded from [this link](https://ai4code.projects.labsticc.fr/software/).
 
-### On-demand
+### Experiments with on-demand data
 
 | Decoder | Training data | Epochs | Eval log |
 | --- | --- | --- | --- |
@@ -56,7 +56,7 @@ Code file: [`bch.63.45.mat`](../data/codes/bch.63.45.mat).
 | [ECCT](../conf/exp/ecct-bch-63-45-on-demand-2dB.yaml) | on-demand at 2 dB | 512 | [results](../log/test/ecct-bch-63-45-on-demand-2dB-512epochs-comic-durian-1881.csv) |
 | [CrossMPT](../conf/exp/crossmpt-bch-63-45-on-demand-2dB.yaml) | on-demand at 2 dB | 512 | — |
 
-### Dataset
+### Experiments with a pre-computed dataset
 
 | Decoder | Training data | Epochs | Eval log |
 | --- | --- | --- | --- |
@@ -68,9 +68,9 @@ Code file: [`bch.63.45.mat`](../data/codes/bch.63.45.mat).
 
 ## eBCH (32, 16, 8)
 
-Code file: [`ebch.32.16.mat`](../data/codes/ebch.32.16.mat).
+Code file: [`ebch.32.16.mat`](../data/codes/ebch.32.16.mat). Dataset: [`train-ml-4M-3dB.mat`](https://sdrive.cnrs.fr/s/fx7kN9s5MwZfi35) (see [Pre-computed dataset format and download](training.md#pre-computed-dataset-format-and-download)); the 16M variant is currently not available for download (data augmentation can do equally well).
 
-### Dataset
+### Experiments with a pre-computed dataset
 
 | Decoder | Training data | Epochs | Eval log |
 | --- | --- | --- | --- |
@@ -79,9 +79,9 @@ Code file: [`ebch.32.16.mat`](../data/codes/ebch.32.16.mat).
 
 ## Reed-Muller (32, 16, 8)
 
-Code file: [`rm.32.16.mat`](../data/codes/rm.32.16.mat). Permutations file: [`perms.rm.32.mat`](../data/perms/perms.rm.32.mat). The RM code is non-systematic and ships with a reverse-encoding matrix `Ginv`; augmentation uses `GenericPerms`.
+Code file: [`rm.32.16.mat`](../data/codes/rm.32.16.mat). Dataset: [`train-ml-4M-3dB.mat`](https://sdrive.cnrs.fr/s/waykmQteWx5RZPn) (see [Pre-computed dataset format and download](training.md#pre-computed-dataset-format-and-download)). The RM code is non-systematic and ships with a reverse-encoding matrix `Ginv`; augmentation uses `GenericPerms`. Permutations file: [`perms.rm.32.mat`](../data/perms/perms.rm.32.mat). 
 
-### Dataset
+### Experiments with a pre-computed dataset
 
 | Decoder | Training data | Epochs | Eval log |
 | --- | --- | --- | --- |
@@ -92,7 +92,7 @@ Code file: [`rm.32.16.mat`](../data/codes/rm.32.16.mat). Permutations file: [`pe
 
 Code file: [`ldpc.rptu.96.48.mat`](../data/codes/ldpc.rptu.96.48.mat).
 
-### On-demand
+### Experiments with on-demand data
 
 | Decoder | Training data | Epochs | Eval log |
 | --- | --- | --- | --- |
@@ -101,9 +101,11 @@ Code file: [`ldpc.rptu.96.48.mat`](../data/codes/ldpc.rptu.96.48.mat).
 
 ## Polar (128, 64, 8) from RPTU
 
-Code file: [`polar.rptu.128.64.mat`](../data/codes/polar.rptu.128.64.mat). Permutations file: [`perms.polar.128.mat`](../data/perms/perms.polar.128.mat). The Polar code is non-systematic and ships with a reverse-encoding matrix `Ginv`; augmentation uses `GenericPerms`. The three rECCT on-demand / dataset experiments below correspond to the three-step training recipe described in the [README highlight](../README.md#-why-sbnd).
+Code file: [`polar.rptu.128.64.mat`](../data/codes/polar.rptu.128.64.mat). Dataset for the dataset-based experiment below: [`train-ml-4M-3dB.mat`](https://sdrive.cnrs.fr/s/sdkG86Terq5KCLr) (see [Pre-computed dataset format and download](training.md#pre-computed-dataset-format-and-download)). The Polar code is non-systematic and ships with a reverse-encoding matrix `Ginv`; augmentation uses `GenericPerms`. Permutations file: [`perms.polar.128.mat`](../data/perms/perms.polar.128.mat). 
 
-### On-demand
+The three rECCT on-demand / dataset experiments below correspond to the three-step training recipe described in the [README highlight](../README.md#-why-sbnd).
+
+### Experiments with on-demand data
 
 | Decoder | Training data | Epochs | Eval log |
 | --- | --- | --- | --- |
@@ -111,7 +113,7 @@ Code file: [`polar.rptu.128.64.mat`](../data/codes/polar.rptu.128.64.mat). Permu
 | [rECCT](../conf/exp/recct-polar-rptu-128-64-on-demand-4dB.yaml) | on-demand at 4 dB | 512 | [results](../log/test/recct-polar-rptu-128-64-on-demand-4dB-512epochs-atomic-yogurt-1978.csv) (+ [sb8](../log/test/recct-polar-rptu-128-64-on-demand-4dB-512epochs-atomic-yogurt-1978-sb8.csv), [tta8](../log/test/recct-polar-rptu-128-64-on-demand-4dB-512epochs-atomic-yogurt-1978-tta8.csv)) |
 | [rECCT](../conf/exp/recct-polar-rptu-128-64-on-demand-5dB.yaml) | on-demand at 5 dB | 64 | [results](../log/test/recct-polar-rptu-128-64-on-demand-5dB-64epochs-carbonite-cruiser-1989.csv) (+ [sb8](../log/test/recct-polar-rptu-128-64-on-demand-5dB-64epochs-carbonite-cruiser-1989-sb8.csv), [tta8](../log/test/recct-polar-rptu-128-64-on-demand-5dB-64epochs-carbonite-cruiser-1989-tta8.csv)) |
 
-### Dataset
+### Experiments with a pre-computed dataset
 
 | Decoder | Training data | Epochs | Eval log |
 | --- | --- | --- | --- |
