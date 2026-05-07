@@ -34,7 +34,7 @@ Syndrome-Based Neural Decoding
 
 Syndrome-based neural decoding is a promising approach for soft-decision decoding of short, high-rate codes, but the field is still wide open. Performance often lags behind classical decoders like OSD or Chase-2, scaling laws are poorly understood, and more parameter-efficient architectures are yet to be found.
 
-`SBND` is built for researchers who want to close that gap. It ships with multiple architectures, reproducible baselines facilitating benchmarking, a flexible data pipeline, and a clean training infrastructure — everything you need to run experiments, test new ideas, and push neural decoders further than ever before.
+`SBND` is built for researchers who want to close that gap. It ships with multiple architectures, reproducible baselines facilitating benchmarking, a flexible data pipeline, and a clean training infrastructure — everything you need to run experiments, test new ideas, and push neural decoders further.
 
 You are what you eat. So is your model. Feed it the best menu with `SBND` 🍽️
 
@@ -94,10 +94,11 @@ This very nice and strong short quasi-cyclic LDPC code was designed at [RPTU](ht
 
 - rECCT closely matches Successive-Cancellation List decoding with list size 8 up to 5 dB (see Note below)
 - [Test-time scaling](./docs/evaluation.md#3-test-time-scaling) yields a notable performance boost
-- Self-Boosting and Test-Time Augmentation perform comparably, with a slight advantage for Self-Boosting at low SNRs
+- Both TTS variants perform comparably, with a slight advantage for Self-Boosting at low SNRs
 
-This Polar code was designed at [RPTU](https://rptu.de/channel-codes/channel-codes-database/polar-codes). It has a relatively low minimum distance for its parameters — the RM and BCH codes of the same length and dimension have minimum distance 16 and 22, respectively — which makes it easier to decode. Yet the model performs surprisingly well given the astronomical size of its syndrome space and the fact that it only sees a tiny fraction of it during training.
+This Polar code was designed at [RPTU](https://rptu.de/channel-codes/channel-codes-database/polar-codes). It has a relatively low minimum distance for its parameters — the RM and extended BCH codes of the same length and dimension have minimum distance 16 and 22, respectively — which makes it easier to decode. Yet the model performs surprisingly well given the astronomical size of its syndrome space and the fact that it only sees a tiny fraction of it during training.
 
+Specifically, this rECCT model was trained in three steps:
 1. On-demand data at 4 dB for 512 epochs;
 2. A dataset of 4M ML error patterns with data augmentation at 3 dB for 256 epochs; the resulting model matches or outperforms SCL-8 up to 5 dB, but shows a performance kink beyond that point;
 3. On-demand data at 5 dB for 64 epochs to recover high-SNR performance at the cost of a slight low-SNR degradation.
@@ -110,7 +111,7 @@ The [`+continue` command-line option](./docs/training.md#resuming-and-continuing
 | [rECCT, step 2](https://github.com/lebidan/sbnd/blob/main/conf/exp/recct-polar-rptu-128-64-ml-4m-3dB-aug.yaml) | [eval step 2](https://github.com/lebidan/sbnd/blob/main/log/test/recct-polar-rptu-128-64-ml-4m-3dB-aug-256epochs-sith-nerf-herder-1986.csv) |
 | [rECCT, step 3](https://github.com/lebidan/sbnd/blob/main/conf/exp/recct-polar-rptu-128-64-on-demand-5dB.yaml) | [eval step 3](https://github.com/lebidan/sbnd/blob/main/log/test/recct-polar-rptu-128-64-on-demand-5dB-64epochs-carbonite-cruiser-1989.csv) |
 
- > **Note:** Step 3 fine-tuning still has room for improvement. With a better training data mix, we expect the residual performance gap at high SNR to disappear without hurting low-SNR performance.
+ > **Note:** This training recipe still has room for improvement. With a better training data mix, we expect the residual performance gap at high SNR to disappear without hurting low-SNR performance.
 
 Companion TTS evaluation logs: [self-boosting (8 iters)](https://github.com/lebidan/sbnd/blob/main/log/test/recct-polar-rptu-128-64-on-demand-5dB-64epochs-carbonite-cruiser-1989-sb8.csv), [test-time augmentation (8 perms)](https://github.com/lebidan/sbnd/blob/main/log/test/recct-polar-rptu-128-64-on-demand-5dB-64epochs-carbonite-cruiser-1989-tta8.csv).
 
