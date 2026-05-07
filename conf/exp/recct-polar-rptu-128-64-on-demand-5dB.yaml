@@ -25,24 +25,21 @@ decoder:
 
 data:  
   _target_: sbnd.data.SBNDDataModule
-  train_file: ${data_dir}/polar-rptu-128-64/train-ml-4M-3dB.mat
+  ebno_dB_train: 5.0
+  n_train_samples: 4194304
   train_bs: 4096
-  val_file: ${data_dir}/polar-rptu-128-64/val-ml-512K-3dB.mat
+  n_val_samples: 524288
   val_bs: 4096
   ebno_dB_test: [2.0, 3.0, 4.0]
   n_test_samples: 2097152
   test_bs: 4096
-  transform:
-    _partial_: true
-    _target_: sbnd.transforms.GenericPerms
-    mat_file: ${perms_dir}/perms.polar.128.mat
 
 # -----------------------------------------------------------------------------
 # Model-specific training setup
 # -----------------------------------------------------------------------------
 
-max_epochs: 256
-lr: 0.0001
+max_epochs: 64
+lr: 0.00001
 
 optimizer:
   _partial_: true
@@ -56,7 +53,7 @@ lr_scheduler:
   _target_: sbnd.lr_sched.WarmupStableDecayLR
   total: ${max_epochs}
   warmup: 0
-  decay: 32
+  decay: 16
 
 trainer:
   precision: bf16-mixed
