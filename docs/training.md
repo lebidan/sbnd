@@ -2,7 +2,7 @@
 
 This document is the reference guide for configuring and running training jobs with `sbnd-train`. It covers the structure of an experiment configuration, the available training data strategies, the model and trainer options, and the conventions around resuming and continuing runs.
 
-**See also:** [README](../README.md#-getting-started) · [Evaluating a model](evaluation.md) · [Extending SBND](extending.md)
+**See also:** [README](../README.md#-getting-started) · [Evaluating a model](evaluation.md) · [Extending SBND](extending.md) · [Experiments](experiments.md)
 
 ## Contents
 

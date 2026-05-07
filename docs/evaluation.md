@@ -2,7 +2,7 @@
 
 This document describes how to evaluate a trained SBND model with `sbnd-test`. It is organized in three sections: the basic Monte-Carlo SNR sweep to measure WER and BER, the optional hard-decision decoding (HDD) emulation used as a cheap post-filter, and the test-time scaling (TTS) variants that trade extra inference compute for lower error rates.
 
-**See also:** [README](../README.md#-getting-started) · [Training a model](training.md) · [Extending SBND](extending.md)
+**See also:** [README](../README.md#-getting-started) · [Training a model](training.md) · [Extending SBND](extending.md) · [Experiments](experiments.md)
 
 ## Contents
 

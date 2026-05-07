@@ -304,11 +304,12 @@ Both the decoder and the datamodule default to `"codeword"`, so standard SBND ex
 
 ## 📚 Documentation
 
-The reference documentation is split into three focused guides under [`docs/`](docs):
+The reference documentation lives under [`docs/`](docs):
 
 * [**Training a model**](docs/training.md) — creating a training experiment config: specifying code, data (on-demand, pre-computed, or a mix of both; multi-SNR sampling; augmentation; dataset format and download), decoder, optimizer/scheduler, precision, resume vs. continue, logging, and end-of-training test evaluation.
 * [**Evaluating a model**](docs/evaluation.md) — running `sbnd-test`: the basic Monte-Carlo SNR sweep to measure WER and BER, hard-decision decoding optional post-filtering, and the test-time scaling variants (self-boosting and TTA).
 * [**Extending SBND**](docs/extending.md) — adding your own decoder architecture: the `BaseDecoder` template, conventions, a walk-through of the mocked decoder example, and how to wire it into an experiment.
+* [**Experiments**](docs/experiments.md) — index of the shipped experiments under [`conf/exp/`](conf/exp), grouped by code, with links to the corresponding evaluation logs in [`log/test/`](log/test).
 
 ## 📁 Project Structure
 

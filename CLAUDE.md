@@ -10,6 +10,7 @@ These are the source of truth — read them rather than rely on guesses, and kee
 - `docs/training.md` — `sbnd-train` reference.
 - `docs/evaluation.md` — `sbnd-test` reference.
 - `docs/extending.md` — how to add a new decoder via `BaseDecoder`.
+- `docs/experiments.md` — index of `conf/exp/` configs cross-referenced with eval logs in `log/test/`.
 
 ## Layout
 

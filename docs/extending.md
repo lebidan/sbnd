@@ -2,7 +2,7 @@
 
 This document collects the conventions and contracts to follow when adding new components to the SBND codebase. The first section covers the most common case — implementing a new decoder architecture. Future sections will cover other extension points (e.g. registering a new automorphism family for training-time augmentation and test-time augmentation) as the corresponding interfaces stabilize.
 
-**See also:** [README](../README.md) · [Training a model](training.md) · [Evaluating a model](evaluation.md)
+**See also:** [README](../README.md) · [Training a model](training.md) · [Evaluating a model](evaluation.md) · [Experiments](experiments.md)
 
 ## Contents
 
