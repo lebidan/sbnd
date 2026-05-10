@@ -23,7 +23,7 @@ decoder:
 
 data:  
   _target_: sbnd.data.SBNDDataModule
-  ebno_dB_train: 2.0
+  ebno_dB_train: 3.0
   n_train_samples: 1048576  # number of training samples per epoch
   train_bs: 4096
   n_val_samples: 524288
@@ -36,8 +36,8 @@ data:
 # Model-specific training setup
 # -----------------------------------------------------------------------------
 
-max_epochs: 512
-lr: 0.001
+max_epochs: 128
+lr: 0.0005
 
 optimizer:
   _partial_: true

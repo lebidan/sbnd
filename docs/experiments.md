@@ -56,7 +56,8 @@ Code file: [`bch.63.45.mat`](../data/codes/bch.63.45.mat). Dataset for the datas
 | --- | --- | --- | --- | --- |
 | [ECCT](../conf/exp/ecct-bch-63-45-on-demand-2dB.yaml) | 1.2M | on-demand at 2 dB | 128 | [results](../log/test/ecct-bch-63-45-on-demand-2dB-128epochs-faithful-frost-1882.csv) |
 | [ECCT](../conf/exp/ecct-bch-63-45-on-demand-2dB.yaml) | 1.2M | on-demand at 2 dB | 512 | [results](../log/test/ecct-bch-63-45-on-demand-2dB-512epochs-comic-durian-1881.csv) |
-| [CrossMPT](../conf/exp/crossmpt-bch-63-45-on-demand-3dB.yaml) | 1.2M | on-demand at 3 dB | 128 | [results](../log/test/crossmpt-bch-63-45-on-demand-2dB-128epochs-bright-glade-2001.csv) |
+| [CrossMPT](../conf/exp/crossmpt-bch-63-45-on-demand-3dB.yaml) | 1.2M | on-demand at 3 dB | 128 | [results](../log/test/crossmpt-bch-63-45-on-demand-3dB-128epochs-bright-glade-2001.csv) |
+| [CrossMPT](../conf/exp/crossmpt-bch-63-45-on-demand-3dB.yaml) | 1.2M | on-demand at 3 dB | 512 | [results](../log/test/crossmpt-bch-63-45-on-demand-3dB-512epochs-ethereal-plasma-2006.csv) |
 
 ### Experiments with a pre-computed dataset
 
@@ -65,7 +66,6 @@ Code file: [`bch.63.45.mat`](../data/codes/bch.63.45.mat). Dataset for the datas
 | [GRU](../conf/exp/gru-bch-63-45-ml-4m-2dB-aug.yaml) | 1.4M | 4M ML samples at 2 dB, with augmentation | 512 | [results](../log/test/gru-bch-63-45-ml-4m-2dB-aug-512epochs-smart-star-1842.csv) |
 | [ECCT](../conf/exp/ecct-bch-63-45-ml-1m-2dB-aug.yaml) | 1.2M | 1M ML samples at 2 dB, with augmentation | 128 | [results](../log/test/ecct-bch-63-45-ml-1m-2dB-aug-128epochs-restful-silence-1903.csv) |
 | [ECCT](../conf/exp/ecct-bch-63-45-ml-4m-2dB-aug.yaml) | 1.2M | 4M ML samples at 2 dB, with augmentation | 512 | [results](../log/test/ecct-bch-63-45-ml-4m-2dB-aug-512epochs-proud-star-1898.csv) |
-| [CrossMPT](../conf/exp/crossmpt-bch-63-45-ml-4m-2dB-aug.yaml) | 1.2M | 4M ML samples at 2 dB, with augmentation | 512 | — |
 | [rECCT](../conf/exp/recct-bch-63-45-ml-4m-2dB-aug.yaml) | 611K | 4M ML samples at 2 dB, with augmentation | 512 | [results](../log/test/recct-bch-63-45-ml-4m-2dB-aug-512epochs-fiery-plant-1871.csv) |
 
 ## eBCH (32, 16, 8)
