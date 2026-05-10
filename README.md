@@ -117,6 +117,8 @@ Companion TTS evaluation logs: [self-boosting (8 iters)](https://github.com/lebi
 
 </details>
 
+Help us improve on those baselines! 
+
 ## 🎯 Features
 
 * **Multiple decoder architectures** — ships with `StackedGRU`, `ECCT`, `CrossMPT`, and `rECCT` (a recurrent ECCT), all sharing a common interface

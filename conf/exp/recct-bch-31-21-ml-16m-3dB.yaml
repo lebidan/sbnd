@@ -10,7 +10,7 @@ code:
 
 decoder:
   _target_: sbnd.recct.RECCT
-  embed_dim: 96
+  embed_dim: 64
   n_heads: 8
   n_layers: 1
   n_iters: 10
