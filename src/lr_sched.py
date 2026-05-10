@@ -17,8 +17,7 @@ class CosineWarmupLR(LRScheduler):
         super().__init__(optimizer)
 
     def get_lr(self) -> list[float | Tensor]:
-        epoch = 1 if self.last_epoch < 1 else self.last_epoch - 1
-        lr_factor = self.get_lr_factor(epoch)
+        lr_factor = self.get_lr_factor(self.last_epoch)
         return [
             self.lr_min + (base_lr - self.lr_min) * lr_factor
             for base_lr in self.base_lrs
