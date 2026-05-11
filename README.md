@@ -88,6 +88,23 @@ This very nice and strong short quasi-cyclic LDPC code was designed at [RPTU](ht
 
 </details>
 
+<details><summary>Decoding the (128,64,14) CCSDS quasi-cyclic LDPC code</summary>
+
+<img alt="QC-LDPC(128,64,14) performance" src="https://raw.githubusercontent.com/lebidan/sbnd/main/media/fer_ccsds_128_64.png?raw=true" width=90%>
+
+- rECCT closely matches Flooding BP with 100 iterations (or Layered BP with 40 iterations)
+
+This right-irregular quasi-cyclic LDPC code is the shortest among the three LDPC codes designed by the [JPL team, MILCOM 2007](https://ieeexplore.ieee.org/document/4454752)
+for telecommand links in ground-to-space and space-to-space communications (see [CCSDS TC Synchronization and Channel Coding Blue Book](https://ccsds.org/Pubs/231x0b4e1.pdf)).
+
+While current model performance is not record-breaking, the BER in the eval log below is better than that reported in Table 1 and Fig. 4(c) of [Park et al, ICLR 2025](https://openreview.net/pdf?id=gFvRRCnQvX), which uses a model with more than twice the number of trainable parameters.
+
+| Configuration file | Evaluation log |
+| --- | --- |
+| [rECCT](https://github.com/lebidan/sbnd/blob/main/conf/exp/recct-ldpc-ccsds-128-64-on-demand-3dB.yaml) | [512 epochs](https://github.com/lebidan/sbnd/blob/main/log/test/recct-ldpc-ccsds-128-64-on-demand-3dB-512epochs-laced-donkey-1994.csv) |
+
+</details>
+
 <details><summary>Decoding a (128,64,8) Polar code w./wo test-time scaling</summary>
 
 <img alt="Polar(128,64,8) performance" src="https://raw.githubusercontent.com/lebidan/sbnd/main/media/fer_polar_128_64.png?raw=true" width=90%>

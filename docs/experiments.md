@@ -15,7 +15,8 @@ Some of the eval logs below have been used to generate the plots in [this prepri
 3. [eBCH (32, 16, 8)](#ebch-32-16-8)
 4. [Reed-Muller (32, 16, 8)](#reed-muller-32-16-8)
 5. [QC-LDPC (96, 48, 10) from RPTU](#qc-ldpc-96-48-10-from-rptu)
-6. [Polar (128, 64, 8) from RPTU](#polar-128-64-8-from-rptu)
+6. [QC-LDPC (128, 64, 14) from CCSDS](#qc-ldpc-128-64-14-from-ccsds)
+7. [Polar (128, 64, 8) from RPTU](#polar-128-64-8-from-rptu)
 
 Conventions:
 
@@ -92,7 +93,7 @@ Code file: [`rm.32.16.mat`](../data/codes/rm.32.16.mat). Dataset: [`train-ml-4M-
 
 ## QC-LDPC (96, 48, 10) from RPTU
 
-Code file: [`ldpc.rptu.96.48.mat`](../data/codes/ldpc.rptu.96.48.mat).
+Code file: [`ldpc.rptu.96.48.mat`](../data/codes/ldpc.rptu.96.48.mat). This quasi-cylic LDPC has circulant size `Z=8`.
 
 ### Experiments with on-demand data
 
@@ -100,6 +101,16 @@ Code file: [`ldpc.rptu.96.48.mat`](../data/codes/ldpc.rptu.96.48.mat).
 | --- | --- | --- | --- | --- |
 | [ECCT](../conf/exp/ecct-ldpc-rptu-96-48-on-demand-3dB.yaml) | 2M | on-demand at 3 dB | 512 | [results](../log/test/ecct-ldpc-rptu-96-48-on-demand-3dB-512epochs-fiery-tree-1917.csv) |
 | [rECCT](../conf/exp/recct-ldpc-rptu-96-48-on-demand-3dB.yaml) | 632K | on-demand at 3 dB | 512 | [results](../log/test/recct-ldpc-rptu-96-48-on-demand-3dB-512epochs-zany-star-1923.csv) |
+
+## QC-LDPC (128, 64, 14) from CCSDS
+
+Code file: [`ldpc.ccsds.128.64.mat`](../data/codes/ldpc.ccsds.128.64.mat). This quasi-cyclic LDPC has circulant size `Z=16`.
+
+### Experiments with on-demand data
+
+| Decoder | Size | Training data | Epochs | Eval log |
+| --- | --- | --- | --- | --- |
+| [rECCT](../conf/exp/recct-ldpc-ccsds-128-64-on-demand-3dB.yaml) | 652K | on-demand at 3 dB | 512 | [results](../log/test/recct-ldpc-ccsds-128-64-on-demand-3dB-512epochs-laced-donkey-1994.csv) |
 
 ## Polar (128, 64, 8) from RPTU
 
