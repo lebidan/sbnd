@@ -24,7 +24,7 @@ This document is the reference guide for configuring and running training jobs w
 
 Training is orchestrated by [`SBNDLitModule`](../src/model.py), a PyTorch Lightning module wrapper around an SBND decoder. The decoder architecture to train is passed as a constructor argument. SBND models are trained in a supervised manner to minimize the average binary cross-entropy between the predicted and target error patterns. The two main metrics monitored during training are the **loss** and the **accuracy** (the fraction of correctly predicted error patterns).
 
-> Despite considerable efforts and experiments with many different loss functions and penalty terms, including [the soft syndrome penalty from Lugosh & Gross](https://arxiv.org/abs/1810.10902) or the [FER loss from Xiao et al.](https://arxiv.org/abs/2105.04118), we have not yet found a suitable loss function that works as consistently well across codes and decoder models as the standard BCE while better optimizing for WER. We'd love to hear from you if you have any suggestions!
+> Despite considerable efforts and experiments with many different loss functions and penalty terms, including [the soft syndrome penalty from Lugosh & Gross](https://arxiv.org/abs/1810.10902), the [various BLER minimization losses of Wiesmayr et al](https://arxiv.org/abs/2210.14103), and the [FER loss from Xiao et al](https://arxiv.org/abs/2105.04118), we have not yet found a loss function that works as consistently well across codes and architectures as standard BCE, while better optimizing for WER. We'd love to hear from you if you have any suggestions! Ideally, the proposed loss should work seamlessly across all [experiments](experiments.md) with as few hyperparameters as possible (zero would be great).
 
 Training is configured with [Hydra](https://hydra.cc). The base config [`conf/train.yaml`](../conf/train.yaml) defines defaults for hardware, logging, callbacks, and path variables such as `codes_dir` (default: `./data/codes`). Experiment configs under [`conf/exp/`](../conf/exp) override what they need, following the naming convention `<decoder>-<code>-<data_mode>-<dataset_size>-<snr>[-aug].yaml`. The `dev-test-mocked` experiment serves as a quick sanity check and is the default when no experiment is specified.
 
@@ -80,7 +80,7 @@ data:
   train_bs: 4096
 ```
 
-> **Pick the weights deliberately — the default uniform is rarely the right choice.** Decoder models often deal well with high-SNR samples: most of them are corrected with little gradient signal. Conversely, low-SNR samples can be too hard to learn. Tune empirically to find the right match for your code and operating conditions.
+> **Pick the weights deliberately — the default uniform is rarely the right choice.** Decoder models often deal well with high-SNR samples: most of them are corrected with little gradient signal. Conversely, low-SNR samples can be too hard to learn. Tune empirically to find the right match for your code and operating conditions. The ICASSP 2023 paper by [Wiesmayr et al](https://arxiv.org/abs/2210.14103) can be a good starting point. 
 
 Validation must always run at a single SNR — an error rate measured on a mix of SNR points is not interpretable — so `ebno_dB_val` selects the validation SNR. When `ebno_dB_train` is a single scalar, `ebno_dB_val` defaults to that value (preserving the previous behavior); when `ebno_dB_train` is a list, `ebno_dB_val` must be specified explicitly.
 
