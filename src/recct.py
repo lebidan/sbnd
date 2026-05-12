@@ -15,7 +15,6 @@
 
 
 import torch, torch.nn as nn, torch.nn.functional as F
-from torch.nn.attention import sdpa_kernel
 from torch import Tensor, BoolTensor
 from .codes import LinearCode
 from .decoder import BaseDecoder
@@ -210,7 +209,7 @@ class RECCT(BaseDecoder):
         self.n_layers = n_layers
 
         # build attn mask from PCM
-        self.register_buffer("mask", self._build_mask(code))
+        self.register_mask(code)
 
         # build the different layers of the rECCT decoder
         self.embed = EmbeddingLayer(code.n + code.m, embed_dim)
@@ -238,20 +237,39 @@ class RECCT(BaseDecoder):
         # call last (compiles the forward graph once all submodules/buffers exist)
         self._maybe_compile()
 
-    def _build_mask(self, code: LinearCode):
-        mask_size = code.n + code.m
-        mask = torch.zeros(mask_size, mask_size)  # token do not attend to themselves
-        for ii in range(code.m):
-            idx = torch.where(code.H[ii] > 0)[0]
-            for jj in idx:
-                for kk in idx:
-                    if jj != kk:
-                        mask[jj, kk] += 1
-                        mask[kk, jj] += 1
-                        mask[code.n + ii, jj] += 1
-                        mask[jj, code.n + ii] += 1
+
+    def register_mask(self, code: LinearCode) -> None:
+
         # Pytorch SDPA requires mask=True for elements that DO participate to attention
-        return mask > 0
+        mask_size = code.n + code.m
+        mask = torch.zeros(mask_size, mask_size)  # tokens do not attend to themselves
+        for row in range(code.m):
+            cols = torch.where(code.H[row] > 0)[0]
+            for p, v in enumerate(cols):
+                mask[code.n + row, v] = 1   # H in the bottom left block
+                mask[v, code.n + row] = 1   # H.T in the upper right block
+                for vp in cols[p+1:]:
+                    mask[v, vp] = 1         # var-to-var in the upper left block
+                    mask[vp, v] = 1         # (symmetric around the diagonal)
+        mask = mask.bool()
+        
+        # make sure last dim of each mask has stride=1, as this is what fast attention and
+        # memory-efficient attention expect for *all* of their input tensors, mask included
+        # see: https://github.com/pytorch/pytorch/issues/116333
+
+        def _enforce_stride1_in_last_dim(x: Tensor) -> Tensor:
+            # solution from https://github.com/pytorch/pytorch/issues/127523
+            if x.stride(-1) != 1:
+                x = torch.empty_like(x, memory_format=torch.contiguous_format).copy_(x)
+            return x
+
+        mask = _enforce_stride1_in_last_dim(mask)
+
+        assert (
+            mask.stride(-1) == 1
+        ), f"The last dim of mask must have stride 1 (got {mask.stride(-1)})"
+
+        self.register_buffer("mask", mask)
 
     def _init_weights(self, module: nn.Module) -> None:
         if isinstance(module, nn.Linear):
