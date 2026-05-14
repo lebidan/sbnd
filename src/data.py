@@ -109,51 +109,118 @@ def prepare_data(
     return ym, (1 - 2 * s).float(), e
 
 
-def generate_random_training_batch(
-    code: LinearCode, ebno_dB: Tensor, weights: Tensor, bs: int
+def proportional_counts(
+    weights: Tensor, bs: int, ebno_dB: Tensor | None = None
+) -> Tensor:
+    """Deterministic per-SNR sample counts.
+
+    Returns a 1D long tensor `counts` of same length as `weights` such that
+    `counts.sum() == bs` and the relative proportions match `weights` as
+    closely as possible (proportional rounding: floor everything, then
+    distribute the remainder by largest fractional part).
+
+    Any SNR with `weights[k] > 0` whose count would round to zero is bumped to
+    1 — so every requested SNR is guaranteed at least one sample per batch —
+    and a one-shot warning is emitted naming the affected SNRs (if `ebno_dB`
+    is provided). The bumped samples are compensated by decrementing the
+    largest counts among the other SNRs.
+    """
+    assert weights.dim() == 1 and bs > 0
+    raw = weights * bs
+    counts = raw.floor().long()
+
+    # standard proportional rounding to make sum == bs
+    remainder = bs - int(counts.sum().item())
+    if remainder > 0:
+        _, idx = torch.topk(raw - counts.float(), remainder)
+        counts[idx] += 1
+
+    # bump tiny non-zero weights to 1 sample/batch, decrement elsewhere to compensate
+    tiny_mask = (weights > 0) & (counts == 0)
+    n_tiny = int(tiny_mask.sum().item())
+    if n_tiny > 0:
+        counts[tiny_mask] = 1
+        # decrement the largest non-tiny counts; exclude tiny entries from the topk
+        candidates = counts.clone()
+        candidates[tiny_mask] = -1
+        if int(candidates.max().item()) < 2:
+            raise ValueError(
+                f"cannot allocate at least 1 sample per batch to all {weights.numel()} "
+                f"requested SNRs at bs={bs}: weights {weights.tolist()} are too dispersed. "
+                "Increase batch size, drop some SNR points, or merge their weights."
+            )
+        _, idx = torch.topk(candidates, n_tiny)
+        counts[idx] -= 1
+        if ebno_dB is not None:
+            tiny_snrs = ebno_dB[tiny_mask].tolist()
+            log.warning(
+                f"SNR(s) {tiny_snrs} dB have weights too small to yield a sample "
+                f"per batch at bs={bs}; bumped to 1 sample/batch each."
+            )
+    return counts
+
+
+def generate_at_single_snr(
+    code: LinearCode, sigma: float, n: int
 ) -> tuple[Tensor, Tensor]:
-    """
-    Generate a random batch of bs training samples for the given code and Eb/N0
-    distribution defined by (`ebno_dB`, `weights`).
-    Each sample is a tuple (y, e) where:
-        - y is the received vector
-        - e is the target binary error pattern introduced by the channel
-    Transmission of the all-zero codeword is assumed.
-    The training samples are only made of rx words with a non-zero syndrome.
-
-    `ebno_dB` is a 1D tensor listing the SNR points to sample from and `weights`
-    is a 1D tensor of same length summing to 1 giving the probability mass at each
-    point. Each of the bs rows independently draws its SNR from this categorical
-    distribution at every call. The SNR list can reduce to a single value, in
-    which case the same SNR is used for all training samples in the batch.
-
-    Note that the non-zero syndrome filter shifts the empirical distribution of
-    kept samples toward the lower-SNR points, since high-SNR samples are more likely
-    to yield zero syndromes.
-
-    Output shape is (bs, n), (bs, n)
-    """
-    assert (
-        ebno_dB.dim() == 1 and weights.dim() == 1 and ebno_dB.numel() == weights.numel()
-    )
-    row_idx = torch.multinomial(weights, bs, replacement=True)
-    ebno_per_row = ebno_dB[row_idx]
-    sigma = (1 / torch.sqrt(2 * code.rate * 10 ** (ebno_per_row / 10))).unsqueeze(1)
+    """Rejection sampling at one SNR (`sigma` is the AWGN std at that SNR)
+    until exactly `n` non-zero-syndrome rows have been accumulated.
+    Output shape: (n, code.n), (n, code.n)."""
     n_samples = 0
     y = torch.empty(0, code.n, dtype=torch.float32)
     e = torch.empty(0, code.n, dtype=torch.int8)
-    while n_samples < bs:
-        y_ = 1 + sigma * torch.randn(bs, code.n)
+    while n_samples < n:
+        y_ = 1 + sigma * torch.randn(n, code.n)
         e_ = (y_ < 0).to(torch.int8)
         s_ = code.syndrome(e_)
         nz_synd_idx = torch.any(s_, dim=1).nonzero().squeeze(1)
-        n_samples_to_add = min(bs - n_samples, nz_synd_idx.shape[0])
-        if n_samples_to_add > 0:
-            nz_rows = nz_synd_idx[:n_samples_to_add]
+        n_to_add = min(n - n_samples, nz_synd_idx.shape[0])
+        if n_to_add > 0:
+            nz_rows = nz_synd_idx[:n_to_add]
             y = torch.cat((y, y_[nz_rows]))
             e = torch.cat((e, e_[nz_rows]))
-            n_samples += n_samples_to_add
+            n_samples += n_to_add
     return y, e
+
+
+def generate_random_training_batch(
+    code: LinearCode, ebno_dB: Tensor, counts: Tensor
+) -> tuple[Tensor, Tensor]:
+    """
+    Generate a batch of training samples with **exact** per-SNR counts.
+
+    `ebno_dB` is a 1D tensor of SNR points and `counts` is a 1D tensor of same
+    length giving the number of non-zero-syndrome samples to draw at each SNR.
+    The output batch size is `counts.sum()`. The per-SNR rejection sampling is
+    decoupled so the non-zero syndrome filter does not skew the empirical
+    distribution of kept samples — every batch hits the requested proportions
+    exactly. Use `proportional_counts(weights, bs)` to derive `counts` from a
+    target weight distribution; cache the result if `bs` and `weights` are
+    fixed (which they are inside the on-demand datasets).
+
+    Per-SNR blocks are shuffled into a random row order before returning, so
+    callers never see contiguous same-SNR rows. Transmission of the all-zero
+    codeword is assumed; all returned rows have non-zero syndrome.
+
+    Output shape: (bs, n), (bs, n).
+    """
+    assert (
+        ebno_dB.dim() == 1 and counts.dim() == 1 and ebno_dB.numel() == counts.numel()
+    )
+    y_parts: list[Tensor] = []
+    e_parts: list[Tensor] = []
+    for k in range(ebno_dB.numel()):
+        n_k = int(counts[k].item())
+        if n_k == 0:
+            continue
+        sigma_k = 1 / math.sqrt(2 * code.rate * 10 ** (float(ebno_dB[k].item()) / 10))
+        y_k, e_k = generate_at_single_snr(code, sigma_k, n_k)
+        y_parts.append(y_k)
+        e_parts.append(e_k)
+    y = torch.cat(y_parts)
+    e = torch.cat(e_parts)
+    perm = torch.randperm(y.shape[0])
+    return y[perm], e[perm]
 
 
 def generate_random_test_batch(
@@ -196,6 +263,7 @@ class OnDemandDataset(Dataset):
 
     ebno_dB: Tensor
     weights: Tensor
+    counts: Tensor | None
 
     def __init__(
         self,
@@ -217,12 +285,16 @@ class OnDemandDataset(Dataset):
             raise ValueError(
                 f"OnDemandDataset in test mode requires a single ebno_dB; got {self.ebno_dB.tolist()}"
             )
+        # cache per-SNR sample counts within a batch (training only; test mode
+        # goes through generate_random_test_batch which doesn't use counts)
+        self.counts = (
+            proportional_counts(self.weights, self.bs, self.ebno_dB) if train else None
+        )
 
     def __getitem__(self, idx: int) -> tuple[Tensor, Tensor, Tensor]:
         if self.train:
-            y, e = generate_random_training_batch(
-                self.code, self.ebno_dB, self.weights, self.bs
-            )
+            assert self.counts is not None  # set by __init__ when train=True
+            y, e = generate_random_training_batch(self.code, self.ebno_dB, self.counts)
         else:
             # test mode is constrained to a single SNR by __init__
             y, e = generate_random_test_batch(
@@ -273,10 +345,22 @@ class OnDemandSampleDataset(Dataset):
         # `_buf` holds chunked, already-prepared samples ready to be served.
         # Lazy-init avoids spending time before the first `__getitem__`.
         self._buf: list[tuple[Tensor, Tensor, Tensor]] = []
+        # cache per-SNR counts keyed on batch size: _refill always asks for
+        # `chunk_size` and DataLoader-driven `__getitems__` always asks for
+        # the same `train_bs`, so two entries cover the steady state. Eagerly
+        # populating the chunk_size entry surfaces the tiny-weight warning
+        # at construction.
+        self._counts_cache: dict[int, Tensor] = {}
+        self.counts_for(self.chunk_size)
+
+    def counts_for(self, n: int) -> Tensor:
+        if n not in self._counts_cache:
+            self._counts_cache[n] = proportional_counts(self.weights, n, self.ebno_dB)
+        return self._counts_cache[n]
 
     def _refill(self) -> None:
         y, e = generate_random_training_batch(
-            self.code, self.ebno_dB, self.weights, self.chunk_size
+            self.code, self.ebno_dB, self.counts_for(self.chunk_size)
         )
         ym, s, e = prepare_data(self.code, y, e, self.error_space)
         self._buf = [(ym[i], s[i], e[i]) for i in range(self.chunk_size)]
@@ -290,7 +374,9 @@ class OnDemandSampleDataset(Dataset):
     def __getitems__(self, indices: list[int]) -> list[tuple[Tensor, Tensor, Tensor]]:
         # batched fast path: generate exactly `len(indices)` samples in one call
         n = len(indices)
-        y, e = generate_random_training_batch(self.code, self.ebno_dB, self.weights, n)
+        y, e = generate_random_training_batch(
+            self.code, self.ebno_dB, self.counts_for(n)
+        )
         ym, s, e = prepare_data(self.code, y, e, self.error_space)
         return [(ym[i], s[i], e[i]) for i in range(n)]
 
@@ -741,6 +827,11 @@ class SBNDDataModule(LightningDataModule):
                         error_space=self.error_space,
                         weights=self.ebno_dB_train_weights,
                     )
+                    # pre-populate the cache entry for `train_bs` (the size every
+                    # __getitems__ call will request) in the parent process, so
+                    # forked DataLoader workers inherit it and the tiny-weight
+                    # warning, if any, fires only once
+                    on_demand_ds.counts_for(self.train_bs)
                     self.train_ds = MixedTrainDataset(self.train_ds, on_demand_ds)
                     snrs = on_demand_ds.ebno_dB.tolist()
                     weights = on_demand_ds.weights.tolist()

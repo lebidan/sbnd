@@ -84,8 +84,6 @@ data:
 
 Validation must always run at a single SNR — an error rate measured on a mix of SNR points is not interpretable — so `ebno_dB_val` selects the validation SNR. When `ebno_dB_train` is a single scalar, `ebno_dB_val` defaults to that value (preserving the previous behavior); when `ebno_dB_train` is a list, `ebno_dB_val` must be specified explicitly.
 
-> Note: the non-zero syndrome filter applied to training samples (a real decoder never operates on zero-syndrome words) shifts the empirical distribution of *kept* samples toward the lower SNR points, since high-SNR rows are more likely to yield a zero syndrome. The weights therefore describe sampling intent before filtering, not the post-filter empirical distribution.
-
 ### Pre-computed datasets
 
 When `train_file` is specified, training and validation data are loaded from user-supplied `.mat` dataset files. Each file must contain a matrix of received words `y` and a matrix of target binary error patterns `e`. The same fixed dataset is reused at each epoch, which gives total control over the training distribution. With well-chosen samples, this allows approaching Maximum Likelihood decoding performance with [significantly fewer training samples than on-demand data](https://arxiv.org/abs/2502.10183).
