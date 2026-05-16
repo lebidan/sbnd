@@ -24,23 +24,15 @@ log = get_rank_zero_logger(__name__)
 
 
 class GeGLU(nn.Module):
-    def __init__(self, dim: int | None = None) -> None:
-        super().__init__()
-        self.scaling = torch.nn.Parameter(torch.ones(dim)) if dim is not None else 1.0
-
     def forward(self, x: Tensor) -> Tensor:
         x, gate = x.chunk(2, dim=-1)
-        return F.gelu(gate * self.scaling) * x
+        return F.gelu(gate) * x
 
 
 class SwiGLU(nn.Module):
-    def __init__(self, dim: int | None = None) -> None:
-        super().__init__()
-        self.scaling = torch.nn.Parameter(torch.ones(dim)) if dim is not None else 1.0
-
     def forward(self, x: Tensor) -> Tensor:
         x, gate = x.chunk(2, dim=-1)
-        return torch.sigmoid(gate * self.scaling) * x  # = SiLU(x) if scaling = 1
+        return F.silu(gate) * x
 
 
 class FeedForwardNetwork(nn.Module):
@@ -48,11 +40,12 @@ class FeedForwardNetwork(nn.Module):
         self,
         dim: int,
         expand: float = 4,
-        act: nn.Module = nn.GELU(),
+        act: nn.Module | None = None,
         dropout: float = 0,
         bias: bool = False,
     ) -> None:
         super().__init__()
+        act = act if act is not None else nn.GELU()
         hidden_dim = int(expand * dim)
         if isinstance(act, GeGLU) or isinstance(act, SwiGLU):
             self.up = nn.Linear(dim, 2 * hidden_dim, bias=bias)  # packed projection
@@ -237,22 +230,23 @@ class RECCT(BaseDecoder):
         # call last (compiles the forward graph once all submodules/buffers exist)
         self._maybe_compile()
 
-
     def register_mask(self, code: LinearCode) -> None:
 
-        # Pytorch SDPA requires mask=True for elements that DO participate to attention
         mask_size = code.n + code.m
-        mask = torch.zeros(mask_size, mask_size)  # tokens do not attend to themselves
+        #  tokens do not attend to themselves (all-zero diagonal in the mask)
+        mask = torch.zeros(mask_size, mask_size)
+        # code bits tokens and syndrome tokens can attend to each other within parity-check equations
         for row in range(code.m):
             cols = torch.where(code.H[row] > 0)[0]
             for p, v in enumerate(cols):
-                mask[code.n + row, v] = 1   # H in the bottom left block
-                mask[v, code.n + row] = 1   # H.T in the upper right block
-                for vp in cols[p+1:]:
-                    mask[v, vp] = 1         # var-to-var in the upper left block
-                    mask[vp, v] = 1         # (symmetric around the diagonal)
+                mask[code.n + row, v] = 1  # H in the bottom left block
+                mask[v, code.n + row] = 1  # H.T in the upper right block
+                for vp in cols[p + 1 :]:
+                    mask[v, vp] = 1  # var-to-var in the upper left block
+                    mask[vp, v] = 1  # (symmetric around the diagonal)
+        # Pytorch SDPA requires mask=True for elements that DO participate to attention
         mask = mask.bool()
-        
+
         # make sure last dim of each mask has stride=1, as this is what fast attention and
         # memory-efficient attention expect for *all* of their input tensors, mask included
         # see: https://github.com/pytorch/pytorch/issues/116333
