@@ -189,7 +189,7 @@ def test_model(
         dl = DataLoader(ds, batch_size=None, num_workers=num_workers)
         with torch.no_grad():
             for batch in tqdm(dl, disable=not show_progress):
-                ym, syndromes, targets = batch
+                ym, syndromes, targets, _ = batch  # per-sample loss weight unused
                 ym_dev = ym.to(device)
                 synd_dev = syndromes.to(device)
                 preds = tts.decode(model, code, ym_dev, synd_dev)  # type: ignore[attr-defined]

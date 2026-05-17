@@ -142,7 +142,8 @@ Help us improve on those baselines!
 * **Easy to extend** — add your own architecture by subclassing the [shared `BaseDecoder`](https://github.com/lebidan/sbnd/blob/main/src/decoder.py) and using the [template decoder](https://github.com/lebidan/sbnd/blob/main/src/mocked.py) as a starting point
 * **Two decoding modes** — standard codeword-level SBND, or message-level [iSBND](https://arxiv.org/abs/2402.13948) for non-systematic codes
 * **Hydra configuration** — every aspect of training is configurable via composable YAML files
-* **Flexible data pipeline** — train on pre-computed datasets, generate noisy codewords on the fly (with optional multi-SNR sampling), or mix both within each batch
+* **Flexible training data** — on-demand generation and pre-computed datasets, with deterministic per-batch mixing across multiple SNRs or files
+* **Per-group loss reweighting** — independently [emphasize each SNR](https://arxiv.org/abs/2210.14103) or dataset in the loss, on top of the batch composition
 * **Data augmentation** — [leverage code automorphisms](https://arxiv.org/abs/2605.03620) to increase training diversity
 * **Multi-GPU** — distributed training via PyTorch Lightning DDP
 * **Monte Carlo evaluation** — evaluate trained models over configurable Eb/N0 ranges with BER/WER reporting
@@ -189,14 +190,6 @@ To pin a specific CUDA variant when the PyPI default does not match your driver:
 
 ```
 pip install -e ".[wandb]" --extra-index-url https://download.pytorch.org/whl/cu128
-```
-
-### Development tools
-
-```
-uv pip install black mypy            # or: pip install black mypy
-black src/                           # auto-format
-mypy src/                            # type checking
 ```
 
 ## 🚀 Getting Started 
@@ -325,7 +318,7 @@ Both the decoder and the datamodule default to `"codeword"`, so standard SBND ex
 
 The reference documentation lives under [`docs/`](docs):
 
-* [**Training a model**](docs/training.md) — creating a training experiment config: specifying code, data (on-demand, pre-computed, or a mix of both; multi-SNR sampling; augmentation; dataset format and download), decoder, optimizer/scheduler, precision, resume vs. continue, logging, and end-of-training test evaluation.
+* [**Training a model**](docs/training.md) — creating a training experiment config: specifying code, data (on-demand or pre-computed, with multi-SNR / multi-file mixing and optional per-group loss reweighting; augmentation; dataset format and download), decoder, optimizer/scheduler, precision, resume vs. continue, logging, and end-of-training test evaluation.
 * [**Evaluating a model**](docs/evaluation.md) — running `sbnd-test`: the basic Monte-Carlo SNR sweep to measure WER and BER, hard-decision decoding optional post-filtering, and the test-time scaling variants (self-boosting and TTA).
 * [**Extending SBND**](docs/extending.md) — adding your own decoder architecture: the `BaseDecoder` template, conventions, a walk-through of the mocked decoder example, and how to wire it into an experiment.
 * [**Experiments**](docs/experiments.md) — index of the shipped experiments under [`conf/exp/`](conf/exp), grouped by code, with links to the corresponding evaluation logs in [`log/test/`](log/test).
@@ -362,7 +355,20 @@ This project is licensed under the [MIT License](https://github.com/lebidan/sbnd
 
 ## 🛠 Contributing
 
-Contributions are welcome. Please open an [issue](https://github.com/lebidan/sbnd/issues) to report bugs, suggest features (new codes, new decoders, etc), or propose better results or training parameters for the available codes and decoders. We'd be happy to update this codebase according to your feedback. 
+Contributions are welcome — both **issues** and **pull requests**:
+
+* Open an [issue](https://github.com/lebidan/sbnd/issues) to report a bug, ask a question, or suggest a feature.
+* Open a [pull request](https://github.com/lebidan/sbnd/pulls) to contribute directly: a new code, a new decoder architecture, or a better training config for one of the available codes and decoders (improved hyperparameters, sharper SNR mix, better data augmentation, etc.). See [docs/extending.md](docs/extending.md) for the decoder API and conventions.
+
+Before submitting a PR, please format and type-check your changes:
+
+```
+uv pip install black mypy            # or: pip install black mypy
+black src/                           # auto-format
+mypy src/                            # type checking
+```
+
+We're happy to review, discuss, and merge.
 
 ## 🤝 Acknowledgments
 

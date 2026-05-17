@@ -14,34 +14,47 @@ from .utils import get_rank_zero_logger
 log = get_rank_zero_logger(__name__)
 
 
-def build_snr_dist(
-    ebno_dB: float | list[float], weights: list[float] | None
-) -> tuple[Tensor, Tensor]:
-    """Normalize a `(ebno_dB, weights)` pair into a `(Tensor, Tensor)` of equal
-    length k ≥ 1, where weights sum to 1. Uniform weights are used when
-    `weights is None`. Validates length match, non-negativity, and positive sum."""
-    if isinstance(ebno_dB, (list, tuple)):
-        ebno_list = [float(v) for v in ebno_dB]
-    else:
-        ebno_list = [float(ebno_dB)]
-    if len(ebno_list) == 0:
-        raise ValueError("ebno_dB must contain at least one value")
-    ebno_t = torch.tensor(ebno_list, dtype=torch.float32)
+def build_batch_mix(K: int, weights: list[float] | None, name: str = "items") -> Tensor:
+    """Normalize `batch_mix` weights into a (K,) tensor that sums to 1.
+    Uniform weights are used when `weights is None`. Validates length match,
+    non-negativity, and positive sum. `name` is the user-facing label of the
+    group axis (e.g. "ebno_dB" or "train_file"), used only in error messages."""
+    if K == 0:
+        raise ValueError(f"{name} must contain at least one value")
     if weights is None:
-        w_t = torch.full((len(ebno_list),), 1.0 / len(ebno_list), dtype=torch.float32)
-    else:
-        if len(weights) != len(ebno_list):
-            raise ValueError(
-                f"weights length ({len(weights)}) must match ebno_dB length ({len(ebno_list)})"
-            )
-        w_t = torch.tensor([float(x) for x in weights], dtype=torch.float32)
-        if torch.any(w_t < 0):
-            raise ValueError(f"weights must be non-negative; got {weights}")
-        w_sum = w_t.sum()
-        if w_sum.item() <= 0:
-            raise ValueError(f"weights must have a positive sum; got {weights}")
-        w_t = w_t / w_sum
-    return ebno_t, w_t
+        return torch.full((K,), 1.0 / K, dtype=torch.float32)
+    if len(weights) != K:
+        raise ValueError(
+            f"batch_mix length ({len(weights)}) must match {name} length ({K})"
+        )
+    w_t = torch.tensor([float(x) for x in weights], dtype=torch.float32)
+    if torch.any(w_t < 0):
+        raise ValueError(f"batch_mix must be non-negative; got {weights}")
+    w_sum = w_t.sum()
+    if w_sum.item() <= 0:
+        raise ValueError(f"batch_mix must have a positive sum; got {weights}")
+    return w_t / w_sum
+
+
+def build_loss_weights(weights: list[float] | None, K: int) -> Tensor:
+    """Normalize `loss_weights` into a (K,) tensor of non-negative floats with
+    at least one positive entry. Defaults to all-ones (no reweighting).
+    Unlike `batch_mix`, this is NOT normalized to sum to 1 — relative scale is
+    eliminated downstream by the weighted-mean loss formula in the
+    SBNDLitModule."""
+    if weights is None:
+        # default to all-ones (no reweighting)
+        return torch.ones(K, dtype=torch.float32)
+    if len(weights) != K:
+        raise ValueError(
+            f"loss_weights length ({len(weights)}) must match group count ({K})"
+        )
+    w = torch.tensor([float(x) for x in weights], dtype=torch.float32)
+    if torch.any(w < 0):
+        raise ValueError(f"loss_weights must be non-negative; got {weights}")
+    if w.sum().item() <= 0:
+        raise ValueError(f"loss_weights must have a positive sum; got {weights}")
+    return w
 
 
 def to_float_list(x: Any) -> list[float] | None:
@@ -64,6 +77,20 @@ def to_float_list(x: Any) -> list[float] | None:
                 "(e.g. `[3.0, 4.0]`, not `[3.0 4.0]`)"
             ) from e
     return [float(x)]
+
+
+def to_string_list(x: Any) -> list[str] | None:
+    """Coerce a scalar / list / tuple / OmegaConf ListConfig / None into a
+    `list[str]` (or None). Same role as `to_float_list` but for path-shaped
+    args like `train_file`. Hydra interpolations such as `${data_dir}/foo.mat`
+    inside list items are resolved by OmegaConf before we see them here."""
+    if x is None:
+        return None
+    if isinstance(x, ListConfig):
+        x = OmegaConf.to_object(x)
+    if isinstance(x, (list, tuple)):
+        return [str(v) for v in x]
+    return [str(x)]
 
 
 def load_matlab_data(mat_file: str) -> tuple[Tensor, Tensor]:
@@ -110,20 +137,20 @@ def prepare_data(
 
 
 def proportional_counts(
-    weights: Tensor, bs: int, ebno_dB: Tensor | None = None
+    weights: Tensor, bs: int, group_labels: list[str] | Tensor | None = None
 ) -> Tensor:
-    """Deterministic per-SNR sample counts.
+    """Deterministic per-group sample counts.
 
     Returns a 1D long tensor `counts` of same length as `weights` such that
     `counts.sum() == bs` and the relative proportions match `weights` as
     closely as possible (proportional rounding: floor everything, then
     distribute the remainder by largest fractional part).
 
-    Any SNR with `weights[k] > 0` whose count would round to zero is bumped to
-    1 — so every requested SNR is guaranteed at least one sample per batch —
-    and a one-shot warning is emitted naming the affected SNRs (if `ebno_dB`
-    is provided). The bumped samples are compensated by decrementing the
-    largest counts among the other SNRs.
+    Any group with `weights[k] > 0` whose count would round to zero is bumped
+    to 1 — so every requested group is guaranteed at least one sample per
+    batch — and a one-shot warning is emitted naming the affected groups (if
+    `group_labels` is provided). The bumped samples are compensated by
+    decrementing the largest counts among the other groups.
     """
     assert weights.dim() == 1 and bs > 0
     raw = weights * bs
@@ -146,15 +173,22 @@ def proportional_counts(
         if int(candidates.max().item()) < 2:
             raise ValueError(
                 f"cannot allocate at least 1 sample per batch to all {weights.numel()} "
-                f"requested SNRs at bs={bs}: weights {weights.tolist()} are too dispersed. "
-                "Increase batch size, drop some SNR points, or merge their weights."
+                f"requested groups at bs={bs}: weights {weights.tolist()} are too dispersed. "
+                "Increase batch size, drop some groups, or merge their weights."
             )
         _, idx = torch.topk(candidates, n_tiny)
         counts[idx] -= 1
-        if ebno_dB is not None:
-            tiny_snrs = ebno_dB[tiny_mask].tolist()
+        if group_labels is not None:
+            if isinstance(group_labels, Tensor):
+                tiny_labels = group_labels[tiny_mask].tolist()
+            else:
+                tiny_labels = [
+                    group_labels[i]
+                    for i in range(len(group_labels))
+                    if bool(tiny_mask[i])
+                ]
             log.warning(
-                f"SNR(s) {tiny_snrs} dB have weights too small to yield a sample "
+                f"Group(s) {tiny_labels} have weights too small to yield a sample "
                 f"per batch at bs={bs}; bumped to 1 sample/batch each."
             )
     return counts
@@ -184,10 +218,13 @@ def generate_at_single_snr(
 
 
 def generate_random_training_batch(
-    code: LinearCode, ebno_dB: Tensor, counts: Tensor
-) -> tuple[Tensor, Tensor]:
+    code: LinearCode,
+    ebno_dB: Tensor,
+    counts: Tensor,
+    w_per_group: Tensor | None = None,
+) -> tuple[Tensor, Tensor, Tensor]:
     """
-    Generate a batch of training samples with **exact** per-SNR counts.
+    Generate a batch of training samples with **constant** per-SNR counts.
 
     `ebno_dB` is a 1D tensor of SNR points and `counts` is a 1D tensor of same
     length giving the number of non-zero-syndrome samples to draw at each SNR.
@@ -198,17 +235,24 @@ def generate_random_training_batch(
     target weight distribution; cache the result if `bs` and `weights` are
     fixed (which they are inside the on-demand datasets).
 
+    `w_per_group` optionally gives a per-SNR scalar loss weight; the returned
+    per-sample weight tensor `w` repeats `w_per_group[k]` `counts[k]` times,
+    then gets the same row permutation as `y` and `e`. Defaults to all-ones.
+
     Per-SNR blocks are shuffled into a random row order before returning, so
     callers never see contiguous same-SNR rows. Transmission of the all-zero
     codeword is assumed; all returned rows have non-zero syndrome.
 
-    Output shape: (bs, n), (bs, n).
+    Output shape: (bs, n), (bs, n), (bs,).
     """
     assert (
         ebno_dB.dim() == 1 and counts.dim() == 1 and ebno_dB.numel() == counts.numel()
     )
     y_parts: list[Tensor] = []
     e_parts: list[Tensor] = []
+    w_parts: list[Tensor] = []
+    if w_per_group is None:
+        w_per_group = torch.ones(ebno_dB.numel(), dtype=torch.float32)
     for k in range(ebno_dB.numel()):
         n_k = int(counts[k].item())
         if n_k == 0:
@@ -217,10 +261,12 @@ def generate_random_training_batch(
         y_k, e_k = generate_at_single_snr(code, sigma_k, n_k)
         y_parts.append(y_k)
         e_parts.append(e_k)
+        w_parts.append(w_per_group[k].expand(n_k))
     y = torch.cat(y_parts)
     e = torch.cat(e_parts)
+    w = torch.cat(w_parts)
     perm = torch.randperm(y.shape[0])
-    return y[perm], e[perm]
+    return y[perm], e[perm], w[perm]
 
 
 def generate_random_test_batch(
@@ -250,19 +296,20 @@ class OnDemandDataset(Dataset):
     If `train=True`, the batches are made of rx words with non-zero syndromes only.
 
     `ebno_dB` may be a single float or a list of floats giving the Eb/N0
-    distribution to sample from. The optional `weights` argument controls the
+    distribution to sample from. The optional `batch_mix` argument controls the
     proportion of samples drawn at each SNR (defaults to uniform; values are
-    normalized to sum to 1).
+    normalized to sum to 1). The optional `loss_weights` argument attaches a
+    per-SNR scalar loss weight to each sample (defaults to all-ones).
 
     Test mode requires a single `ebno_dB` value.
 
-    Internally `ebno_dB` and `weights` are always stored as 1D tensors of
-    same length ≥ 1, so the per-row sampling logic in `generate_random_training_batch`
-    handles both single- and multi-SNR cases uniformly.
+    Each `__getitem__` returns a 4-tuple `(ym, s, e, w)` where `w` is a `(bs,)`
+    per-sample loss weight (constant per-group, replicated by `counts`).
     """
 
     ebno_dB: Tensor
-    weights: Tensor
+    batch_mix: Tensor
+    loss_weights: Tensor
     counts: Tensor | None
 
     def __init__(
@@ -273,14 +320,22 @@ class OnDemandDataset(Dataset):
         bs: int,
         train: bool = False,
         error_space: str = "codeword",
-        weights: list[float] | None = None,
+        batch_mix: list[float] | None = None,
+        loss_weights: list[float] | None = None,
     ) -> None:
         self.code = code
         self.n_batches, self.bs = n_batches, bs
         self.train = train
         self.error_space = error_space
 
-        self.ebno_dB, self.weights = build_snr_dist(ebno_dB, weights)
+        ebno_list = (
+            [float(ebno_dB)]
+            if not isinstance(ebno_dB, (list, tuple))
+            else [float(v) for v in ebno_dB]
+        )
+        self.batch_mix = build_batch_mix(len(ebno_list), batch_mix, name="ebno_dB")
+        self.ebno_dB = torch.tensor(ebno_list, dtype=torch.float32)
+        self.loss_weights = build_loss_weights(loss_weights, len(ebno_list))
         if not train and self.ebno_dB.numel() != 1:
             raise ValueError(
                 f"OnDemandDataset in test mode requires a single ebno_dB; got {self.ebno_dB.tolist()}"
@@ -288,106 +343,41 @@ class OnDemandDataset(Dataset):
         # cache per-SNR sample counts within a batch (training only; test mode
         # goes through generate_random_test_batch which doesn't use counts)
         self.counts = (
-            proportional_counts(self.weights, self.bs, self.ebno_dB) if train else None
+            proportional_counts(self.batch_mix, self.bs, self.ebno_dB.tolist())
+            if train
+            else None
         )
 
-    def __getitem__(self, idx: int) -> tuple[Tensor, Tensor, Tensor]:
+    def __getitem__(self, idx: int) -> tuple[Tensor, Tensor, Tensor, Tensor]:
         if self.train:
             assert self.counts is not None  # set by __init__ when train=True
-            y, e = generate_random_training_batch(self.code, self.ebno_dB, self.counts)
+            y, e, w = generate_random_training_batch(
+                self.code, self.ebno_dB, self.counts, self.loss_weights
+            )
+            ym, s, e = prepare_data(self.code, y, e, self.error_space)
+            return ym, s, e, w
         else:
             # test mode is constrained to a single SNR by __init__
             y, e = generate_random_test_batch(
                 self.code, float(self.ebno_dB[0].item()), self.bs
             )
-        return prepare_data(self.code, y, e, self.error_space)
+            ym, s, e = prepare_data(self.code, y, e, self.error_space)
+            w = torch.ones(self.bs, dtype=torch.float32)
+            return ym, s, e, w
 
     def __len__(self) -> int:
         return self.n_batches
-
-
-class OnDemandSampleDataset(Dataset):
-    """
-    Sample-level on-demand dataset. Each `__getitem__` returns one fresh
-    training sample `(ym, s, e)` drawn from the SNR distribution defined by
-    `(ebno_dB, weights)`. Length is fixed at construction. Like
-    `OnDemandDataset`, all samples have non-zero syndromes.
-
-    Used to build a `MixedTrainDataset` together with a fixed `SBNDDataset`,
-    so that a single map-style `DataLoader` can mix both data sources at the
-    sample level via standard random shuffling.
-
-    For efficiency, each worker maintains an internal buffer of size
-    `chunk_size`: requests are served from the buffer, and the buffer is
-    refilled in one vectorized call to `generate_random_training_batch` when
-    empty. This amortizes the per-call overhead of rejection sampling. The
-    buffer is per-DataLoader-worker and reseeded by `seed_everything(workers=
-    True)` along with the global RNG.
-    """
-
-    ebno_dB: Tensor
-    weights: Tensor
-
-    def __init__(
-        self,
-        code: LinearCode,
-        ebno_dB: float | list[float],
-        n_samples: int,
-        error_space: str = "codeword",
-        weights: list[float] | None = None,
-        chunk_size: int = 256,
-    ) -> None:
-        self.code = code
-        self.n_samples = n_samples
-        self.error_space = error_space
-        self.chunk_size = chunk_size
-        self.ebno_dB, self.weights = build_snr_dist(ebno_dB, weights)
-        # `_buf` holds chunked, already-prepared samples ready to be served.
-        # Lazy-init avoids spending time before the first `__getitem__`.
-        self._buf: list[tuple[Tensor, Tensor, Tensor]] = []
-        # cache per-SNR counts keyed on batch size: _refill always asks for
-        # `chunk_size` and DataLoader-driven `__getitems__` always asks for
-        # the same `train_bs`, so two entries cover the steady state. Eagerly
-        # populating the chunk_size entry surfaces the tiny-weight warning
-        # at construction.
-        self._counts_cache: dict[int, Tensor] = {}
-        self.counts_for(self.chunk_size)
-
-    def counts_for(self, n: int) -> Tensor:
-        if n not in self._counts_cache:
-            self._counts_cache[n] = proportional_counts(self.weights, n, self.ebno_dB)
-        return self._counts_cache[n]
-
-    def _refill(self) -> None:
-        y, e = generate_random_training_batch(
-            self.code, self.ebno_dB, self.counts_for(self.chunk_size)
-        )
-        ym, s, e = prepare_data(self.code, y, e, self.error_space)
-        self._buf = [(ym[i], s[i], e[i]) for i in range(self.chunk_size)]
-
-    def __getitem__(self, idx: int) -> tuple[Tensor, Tensor, Tensor]:
-        # `idx` is ignored — every call yields a fresh sample
-        if not self._buf:
-            self._refill()
-        return self._buf.pop()
-
-    def __getitems__(self, indices: list[int]) -> list[tuple[Tensor, Tensor, Tensor]]:
-        # batched fast path: generate exactly `len(indices)` samples in one call
-        n = len(indices)
-        y, e = generate_random_training_batch(
-            self.code, self.ebno_dB, self.counts_for(n)
-        )
-        ym, s, e = prepare_data(self.code, y, e, self.error_space)
-        return [(ym[i], s[i], e[i]) for i in range(n)]
-
-    def __len__(self) -> int:
-        return self.n_samples
 
 
 class SBNDDataset(Dataset):
     """
     Create a dataset for SBND decoding of the linear code `code`,
     from the pair of tensors (y, e).
+
+    Each sample is returned as a 4-tuple `(ym, s, e, w)` where `w` is the
+    per-sample loss weight (a scalar tensor of value `w_per_sample`, constant
+    across rows of this dataset). Use `w_per_sample` to inject the per-dataset
+    `loss_weights` value when mixing several files.
 
     This is essentially a wrapper around Pytorch TensorDataset:
     - https://github.com/pytorch/pytorch/blob/main/torch/utils/data/dataset.py#L189
@@ -402,157 +392,201 @@ class SBNDDataset(Dataset):
         e: Tensor,
         transform: Callable | None = None,
         error_space: str = "codeword",
+        w_per_sample: float = 1.0,
     ) -> None:
         assert y.shape[0] == e.shape[0], "y and e must have same number of samples"
         self.code = code
         self.transform = transform
         self.error_space = error_space
         self.y, self.e = y, e
+        self.w_per_sample = float(w_per_sample)
 
-    def __getitem__(self, index: int) -> tuple[Tensor, Tensor, Tensor]:
+    def __getitem__(self, index: int) -> tuple[Tensor, Tensor, Tensor, Tensor]:
         # `prepare_data` expects a (bs, n) batch; wrap the single row in a
         # 1-row batch and squeeze the result back. (DataLoader normally hits
         # `__getitems__` instead, but single-sample access matters when this
-        # dataset is wrapped in a higher-level structure such as
-        # `MixedTrainDataset`.)
+        # dataset is wrapped in a higher-level structure.)
         y_row = self.y[index].unsqueeze(0)
         e_row = self.e[index].unsqueeze(0)
         if self.transform is not None:
             y_row, e_row = self.transform(y_row, e_row)
         ym, s, e = prepare_data(self.code, y_row, e_row, self.error_space)
-        return ym.squeeze(0), s.squeeze(0), e.squeeze(0)
+        w = torch.tensor(self.w_per_sample, dtype=torch.float32)
+        return ym.squeeze(0), s.squeeze(0), e.squeeze(0), w
 
-    def __getitems__(self, indices: list[int]) -> list[tuple[Tensor, Tensor, Tensor]]:
+    def __getitems__(
+        self, indices: list[int]
+    ) -> list[tuple[Tensor, Tensor, Tensor, Tensor]]:
         if self.transform is not None:
             y_t, e_t = self.transform(self.y[indices], self.e[indices])
-            y, s, e = prepare_data(self.code, y_t, e_t, self.error_space)
-            return [(y[i], s[i], e[i]) for i in range(y.size(0))]
+            ym, s, e = prepare_data(self.code, y_t, e_t, self.error_space)
         else:
             ym, s, e = prepare_data(
                 self.code, self.y[indices], self.e[indices], self.error_space
             )
-            return [(ym[i], s[i], e[i]) for i in range(ym.size(0))]
+        n = ym.size(0)
+        w_scalar = torch.tensor(self.w_per_sample, dtype=torch.float32)
+        return [(ym[i], s[i], e[i], w_scalar) for i in range(n)]
 
     def __len__(self) -> int:
         return self.y.size(0)
 
 
-class MixedTrainDataset(Dataset):
+class MultiDatasetTrainDataset(Dataset):
     """
-    Concatenation of a fixed `SBNDDataset` (loaded from a `.mat` file) and an
-    `OnDemandSampleDataset` (fresh samples drawn from a configurable SNR
-    distribution).
+    Produces batches mixing rows from K `SBNDDataset` files in fixed per-batch
+    proportions. Each `__getitem__(b)` returns a full batch `(ym, s, e, w)` of
+    size `bs = counts.sum()`, with `counts[k]` rows drawn from dataset k and
+    rows then permuted into a random order so consumers never see contiguous
+    same-source blocks.
 
-    Functionally equivalent to `torch.utils.data.ConcatDataset`, with one
-    extra: `__getitems__` is forwarded to the children so DataLoader can keep
-    using batched fetching (which is meaningfully faster than per-sample
-    `__getitem__` calls). Indices in [0, len(fixed)) map to the fixed side;
-    indices ≥ len(fixed) map to the on-demand side.
+    Per-sample loss weights are inherited from each dataset's `w_per_sample`
+    (so callers must set `loss_weights[k]` on `datasets[k]` at construction).
+
+    Epoch lifecycle and DDP correctness:
+
+        Per-dataset shuffled index lists are derived deterministically from
+        `(base_seed, epoch, k)` at every epoch via `set_epoch(epoch)`. The
+        datamodule calls `set_epoch` from `on_train_epoch_start`, so all DDP
+        ranks compute identical shuffles and Lightning's auto-installed
+        `DistributedSampler` over batch indices `[0, n_batches)` gives each
+        rank a disjoint slice — no row appears in two batches of the same
+        epoch, across all ranks. No custom Sampler is required.
+
+        The intra-batch row permutation uses the global RNG (worker-decorrelated
+        by `seed_everything(workers=True)`); this affects only display order
+        within a batch, not sample identity, so per-worker randomness is fine.
+
+    Caveat: `persistent_workers=True` is not supported — when workers persist
+    across epochs they don't see `set_epoch` updates made in the main process.
+    The DataModule logs a warning if it detects this setting.
+
+    Epoch length is `min_k floor(len(datasets[k]) / counts[k])`. Larger files
+    are partially traversed each epoch (their unused rows are seen on later
+    epochs after reshuffle); a per-dataset utilization summary is logged at
+    startup so this is visible.
     """
 
-    def __init__(self, fixed: Dataset, on_demand: OnDemandSampleDataset) -> None:
-        # `fixed` is typed as `Dataset` so it accepts both `SBNDDataset` and a
-        # `Subset[SBNDDataset]` (used when validation is created by split).
-        # Both forward `__getitems__`, which is required by the fast path below.
-        self.fixed = fixed
-        self.on_demand = on_demand
-        self.n_fixed = len(fixed)  # type: ignore[arg-type]
+    def __init__(
+        self,
+        datasets: list[SBNDDataset],
+        counts: Tensor,
+        base_seed: int = 0,
+    ) -> None:
+        # Note: `datasets` may also contain `Subset[SBNDDataset]` when a
+        # validation split was taken from the first file. Subset exposes
+        # __getitems__ (delegating through self.indices), so the batched
+        # fetch in `__getitem__` works uniformly. The list[SBNDDataset]
+        # annotation is the dominant case; the Subset substitution is
+        # tolerated at the one call site that does it.
+        assert len(datasets) == counts.numel() and len(datasets) >= 1
+        self.datasets = datasets
+        self.counts = counts.long()
+        self.base_seed = int(base_seed)
+        # n_batches/epoch limited by the dataset that runs out first under
+        # its share of the batch; see class docstring for rationale
+        self.n_batches = min(
+            len(d) // int(c) for d, c in zip(datasets, self.counts.tolist())
+        )
+        self._epoch = -1
+        self._perms: list[Tensor] = []
+        self.set_epoch(0)
+
+    def set_epoch(self, epoch: int) -> None:
+        """Reshuffle per-dataset index lists deterministically for `epoch`.
+        Must be called from the main process before iteration starts (so workers
+        inherit the new state at spawn-time via pickle)."""
+        if epoch == self._epoch:
+            return
+        self._epoch = int(epoch)
+        self._perms = []
+        for k, d in enumerate(self.datasets):
+            g = torch.Generator()
+            # spread bits across (base_seed, epoch, k) to avoid trivial collisions
+            g.manual_seed(self.base_seed + 1_000_003 * (self._epoch + 1) + 31 * k)
+            self._perms.append(torch.randperm(len(d), generator=g))
 
     def __len__(self) -> int:
-        return self.n_fixed + len(self.on_demand)
+        return self.n_batches
 
-    def __getitem__(self, idx: int) -> tuple[Tensor, Tensor, Tensor]:
-        if idx < self.n_fixed:
-            return self.fixed[idx]
-        return self.on_demand[idx - self.n_fixed]
-
-    def __getitems__(self, indices: list[int]) -> list[tuple[Tensor, Tensor, Tensor]]:
-        # split incoming indices by source while remembering positions, fetch
-        # each side in one batched call, then re-assemble in original order
-        items: list[tuple[Tensor, Tensor, Tensor] | None] = [None] * len(indices)
-        fixed_pos: list[int] = []
-        fixed_idx: list[int] = []
-        od_pos: list[int] = []
-        od_idx: list[int] = []
-        for pos, idx in enumerate(indices):
-            if idx < self.n_fixed:
-                fixed_pos.append(pos)
-                fixed_idx.append(idx)
-            else:
-                od_pos.append(pos)
-                od_idx.append(idx - self.n_fixed)
-        if fixed_idx:
-            for pos, item in zip(fixed_pos, self.fixed.__getitems__(fixed_idx)):  # type: ignore[attr-defined]
-                items[pos] = item
-        if od_idx:
-            for pos, item in zip(od_pos, self.on_demand.__getitems__(od_idx)):
-                items[pos] = item
-        return cast(list[tuple[Tensor, Tensor, Tensor]], items)
+    def __getitem__(self, b: int) -> tuple[Tensor, Tensor, Tensor, Tensor]:
+        ym_parts: list[Tensor] = []
+        s_parts: list[Tensor] = []
+        e_parts: list[Tensor] = []
+        w_parts: list[Tensor] = []
+        for k, d in enumerate(self.datasets):
+            c = int(self.counts[k].item())
+            idx = self._perms[k][b * c : (b + 1) * c].tolist()
+            items = d.__getitems__(idx)
+            ym_parts.append(torch.stack([it[0] for it in items]))
+            s_parts.append(torch.stack([it[1] for it in items]))
+            e_parts.append(torch.stack([it[2] for it in items]))
+            w_parts.append(torch.stack([it[3] for it in items]))
+        ym = torch.cat(ym_parts)
+        s = torch.cat(s_parts)
+        e = torch.cat(e_parts)
+        w = torch.cat(w_parts)
+        # intra-batch row shuffle (worker-local RNG; safe — affects only order)
+        perm = torch.randperm(ym.size(0))
+        return ym[perm], s[perm], e[perm], w[perm]
 
 
 class SBNDDataModule(LightningDataModule):
     """
     DataModule for SBND training and testing.
 
-    Can load training/validation data from a .mat file, generate them on the
-    fly at one or several Eb/N0 values, or mix the two within each batch.
-    Training/validation data never include rx words with a zero syndrome.
-    The training/validation data logic depends on the arguments passed to
-    `__init__`, which select one of three modes:
+    Two training modes are supported, selected by whether at least one training
+    dataset file is specified (`train_file` set) or not (the default):
 
-    1. Fixed-dataset (`train_file` set, `ebno_dB_train` unset):
-        - training will use the first `n_train_samples` samples from `train_file`, or the entire file if `n_train_samples` is 0 (default)
-        - if `transform` is not None: the specified transform, e.g. cyclic permutation, will be applied to augment the training data
-        - if `val_file` is not None: validation will use the first `n_val_samples` samples from `val_file`, or the entire file if `n_val_samples` is 0 (default)
-        - else (`val_file` is None): a validation set of `n_val_samples` will be created by random split of the training set, whose size `n_train_samples` will be reduced accordingly
-          Default split ratio is 75%/25% unless `n_val_samples` is explicitly specified
-
-    2. On-demand (`train_file` unset, `ebno_dB_train` set):
-        - training and validation will use on-demand data
-        - data generation is performed at the Eb/N0 value(s) given by `ebno_dB_train`
-        - `n_train_samples` will be used for training (must be specified explicitely)
+    1. On-demand (`train_file` unset):
+        - training and validation use freshly-generated on-demand data
+        - data generation is performed at the Eb/N0 value(s) given by `ebno_dB_train` (must be set)
+        - `n_train_samples` will be used for training (must be specified explicitly)
         - `n_val_samples` will be used for validation (default value = 25% of `n_train_samples`)
-        - `n_train_samples` (resp. `n_val_samples`) will be rounded down to the nearest multiple of `train_bs`
-          (resp. `val_bs`) if necessary, as on-demand data generation requires data size to be a multiple of batch size
-        - no data augmentation will be applied, even if `transform` is not None
+        - `n_train_samples` (resp. `n_val_samples`) is rounded down to a multiple of `train_bs`
+          (resp. `val_bs`) if necessary, as on-demand data generation requires data size to be
+          a multiple of batch size
+        - no data augmentation is applied, even if `transform` is not None
 
-    3. Mixed (both `train_file` and `ebno_dB_train` set): the fixed dataset is
-       augmented with fresh on-demand samples, and each training batch is a
-       random mixture of the two via standard `DataLoader(shuffle=True)` over a
-       map-style concatenation. The mix is controlled by a single parameter:
-        - `on_demand_ratio` ∈ [0, 1) — expected fraction of each batch drawn
-          from the on-demand side (default 0.5). The on-demand side is sized
-          as `round(n_train_samples * ratio / (1 - ratio))`, rounded down to a
-          multiple of `train_bs`. A loud warning is logged at startup so an
-          unintended combination is hard to miss.
-        - validation is unchanged from fixed-dataset mode (random split of
-          `train_file` or the explicit `val_file`); `ebno_dB_val` is ignored.
-        - augmentation only applies to the fixed half — on-demand samples are
-          already fresh and never augmented.
-        - multi-SNR sampling on the on-demand half (via a list `ebno_dB_train`
-          and optional `ebno_dB_train_weights`) works just like in pure
-          on-demand mode.
+    2. Pre-computed dataset(s) (`train_file` set):
+        - training uses the first `n_train_samples` of each listed file (entire file if 0)
+        - `train_file` may be a single path or a list of paths; with a list, each batch is a
+          fixed mixture of rows from the files (proportions controlled by `batch_mix`,
+          defaults to uniform). Epoch length is `min_k floor(N_k / counts[k])`; larger files
+          are partially traversed each epoch
+        - if `transform` is not None, the specified augmentation is applied to all loaded
+          training rows (validation samples are never augmented)
+        - if `val_file` is given, validation uses the first `n_val_samples` of that file
+          (entire file if 0); otherwise a validation set of `n_val_samples` is created by
+          random split of the FIRST training file (default split = 75/25 unless
+          `n_val_samples` is explicit)
 
-    On-demand training (modes 2 and 3) supports mixing several SNR points
-    within each batch: pass a list to `ebno_dB_train` (instead of a single
-    float). The optional `ebno_dB_train_weights` argument gives the proportion
-    of samples drawn at each SNR (defaults to uniform; values are normalized
-    to sum to 1). Each sample's SNR is drawn i.i.d. from the resulting
-    categorical distribution at every batch.
+    Both modes share two optional knobs over the K-element group axis (K = number of SNR
+    points in mode 1, number of train files in mode 2):
 
-    Validation must always run at a single SNR to be meaningful. In pure
-    on-demand mode, `ebno_dB_val` selects it: when `ebno_dB_train` is a single
-    float, `ebno_dB_val` defaults to that value (backward compatible); when
-    `ebno_dB_train` is a list, `ebno_dB_val` must be specified explicitly. In
-    fixed-dataset and mixed modes, validation comes from the file (split or
-    `val_file`) and `ebno_dB_val` has no effect.
+        - `batch_mix: list[float] | None` — per-batch proportions across groups; normalized
+          to sum to 1; defaults to uniform. In on-demand mode, this controls the SNR distribution
+          within each training batch; in dataset mode, this controls the proportion of examples
+          drawn from each file into each batch.
+        - `loss_weights: list[float] | None` — per-sample loss multiplier per group; default
+          all-ones. Combined with the per-sample weighted-mean loss in `SBNDLitModule` to
+          implement Wiesmayr-style per-group reweighting (see docs/training.md for the
+          formula and its coupling with `batch_mix`).
+
+    On-demand validation must run at a single SNR to be meaningful: `ebno_dB_val` selects
+    it. When `ebno_dB_train` is a single float, `ebno_dB_val` defaults to that value
+    (backward compatible); when `ebno_dB_train` is a list, `ebno_dB_val` must be specified
+    explicitly. In dataset mode, validation comes from the file (split or `val_file`) and
+    `ebno_dB_val` has no effect.
 
     Test data is always generated on the fly, and can include rx words with a zero syndrome.
-    It is possible to pass a list of Eb/N0 values to `ebno_dB_test`, in which case different test datasets will be
-    generated, one per SNR value, of size `n_test_samples` each.
-    Here also `n_test_samples` will be rounded down to the nearest multiple of `test_bs` if required.
+    It is possible to pass a list of Eb/N0 values to `ebno_dB_test`, in which case different
+    test datasets will be generated, one per SNR value, of size `n_test_samples` each.
+    Here also `n_test_samples` is rounded down to the nearest multiple of `test_bs` if needed.
 
-    Extra arguments can be passed to pytorch DataLoader, e.g. `num_workers`, through the `extra_args` argument.
+    Extra arguments can be passed to pytorch DataLoader, e.g. `num_workers`, through
+    `extra_args`. Note: with multi-file dataset training (K >= 2), `persistent_workers=True`
+    is not supported — see `MultiDatasetTrainDataset` for details.
 
     Reproducibility and sample-correlation caveats (on-demand mode):
         On-demand training, validation and test batches are produced by the global
@@ -582,17 +616,17 @@ class SBNDDataModule(LightningDataModule):
     val_ds: Dataset
     test_ds: list[Dataset]
     ebno_dB_train: list[float] | None
-    ebno_dB_train_weights: list[float] | None
+    batch_mix: list[float] | None
+    loss_weights: list[float] | None
     ebno_dB_val: float | None
     ebno_dB_test: list[float]
-    on_demand_ratio: float
+    train_files: list[str] | None
 
     def __init__(
         self,
         code: LinearCode,
         ebno_dB_train: float | Iterable[float] | None = None,
-        ebno_dB_train_weights: Iterable[float] | None = None,
-        train_file: str | None = None,
+        train_file: str | Iterable[str] | None = None,
         n_train_samples: int = 0,
         train_bs: int = 1024,
         val_file: str | None = None,
@@ -602,22 +636,23 @@ class SBNDDataModule(LightningDataModule):
         ebno_dB_test: float | Iterable[float] = 0.0,
         n_test_samples: int = 2**20,
         test_bs: int = 1024,
-        on_demand_ratio: float | None = None,
+        batch_mix: Iterable[float] | None = None,
+        loss_weights: Iterable[float] | None = None,
         transform: Callable | None = None,
         error_space: str = "codeword",
         extra_args: dict | None = None,
+        base_seed: int = 0,
     ) -> None:
         super().__init__()
 
         self.code = code
         log.info(f"Instantiating an SBNDDataModule for the {code} code")
 
-        # determine training mode:
-        #   - train_file is None                       → pure on-demand
-        #   - train_file is set, ebno_dB_train is None → pure fixed-dataset
-        #   - both set                                 → mixed (file + on-demand)
-        self.on_demand = train_file is None
-        self.mixed = train_file is not None and ebno_dB_train is not None
+        # mode dispatch:
+        #   - train_file unset → on-demand
+        #   - train_file set   → pre-computed dataset(s)
+        self.train_files = to_string_list(train_file)
+        self.on_demand = self.train_files is None
 
         if self.on_demand:
             log.info("Training uses on-demand data")
@@ -634,79 +669,66 @@ class SBNDDataModule(LightningDataModule):
                     "val_file cannot be specified without train_file "
                     "(on-demand mode does not support validation set files)"
                 )
-            if on_demand_ratio is not None:
-                log.warning(
-                    "on_demand_ratio is set but training is purely on-demand "
-                    "(no fixed dataset to mix with); the value will be ignored"
-                )
-        elif self.mixed:
-            # MIXED mode is detected when both train_file and ebno_dB_train are
-            # set. We log it explicitly so the user can stop the run if this is
-            # not what they wanted.
-            ratio = 0.5 if on_demand_ratio is None else float(on_demand_ratio)
-            if not (0.0 <= ratio < 1.0):
-                raise ValueError(f"on_demand_ratio must be in [0, 1); got {ratio}")
-            self.on_demand_ratio = ratio
-            log.warning(
-                "Mixed training mode detected: each batch will mix samples from "
-                f"the fixed dataset {train_file!r} with fresh on-demand samples "
-                f"at Eb/N0={ebno_dB_train} (on_demand_ratio={ratio:.2f}, "
-                f"{'default' if on_demand_ratio is None else 'user-set'}). "
-                "If this is not what you intended, stop and unset either "
-                "train_file or ebno_dB_train."
-            )
-            if ebno_dB_val is not None:
-                log.warning(
-                    "ebno_dB_val is set but mixed-mode validation uses the "
-                    "fixed-dataset file split or val_file; the value will be ignored"
-                )
         else:
-            # pure fixed-dataset mode
-            log.info(f"Training uses the fixed dataset {train_file}")
-            if ebno_dB_val is not None:
+            assert self.train_files is not None
+            if len(self.train_files) == 1:
+                log.info(f"Training uses the fixed dataset {self.train_files[0]}")
+            else:
+                log.info(
+                    f"Training uses {len(self.train_files)} fixed datasets, mixed within each batch: "
+                    + ", ".join(self.train_files)
+                )
+            if ebno_dB_train is not None:
                 log.warning(
-                    "ebno_dB_val is set but training uses a fixed dataset file; "
+                    "ebno_dB_train is set but training uses fixed dataset file(s); "
                     "the value will be ignored"
                 )
-            if ebno_dB_train_weights is not None:
+            if ebno_dB_val is not None:
                 log.warning(
-                    "ebno_dB_train_weights is set but training uses a fixed "
-                    "dataset file with no on-demand mixing; the value will be ignored"
-                )
-            if on_demand_ratio is not None:
-                log.warning(
-                    "on_demand_ratio is set but training uses a fixed dataset "
-                    "file with no on-demand mixing; the value will be ignored"
+                    "ebno_dB_val is set but training uses fixed dataset file(s); "
+                    "the value will be ignored"
                 )
 
         # store non-SNR arguments
-        self.train_file, self.n_train_samples, self.train_bs = (
-            train_file,
-            n_train_samples,
-            train_bs,
-        )
+        self.n_train_samples, self.train_bs = n_train_samples, train_bs
         self.val_file, self.n_val_samples, self.val_bs = val_file, n_val_samples, val_bs
         self.n_test_samples, self.test_bs = n_test_samples, test_bs
         self.transform = transform(code) if transform is not None else None
         self.error_space = error_space
         self.extra_args = extra_args if extra_args is not None else {}
+        self.base_seed = int(base_seed)
         self.save_hyperparameters(
             logger=False
         )  # snapshots __init__ args for ckpt; safe to mutate self attrs below
 
+        # warn loudly if persistent_workers=True in extra_args and we'll be in
+        # the multi-file mode (set_epoch updates wouldn't propagate to workers)
+        if (
+            not self.on_demand
+            and self.train_files is not None
+            and len(self.train_files) >= 2
+            and self.extra_args.get("persistent_workers", False)
+        ):
+            log.warning(
+                "persistent_workers=True is not supported with multi-file training "
+                "(per-epoch dataset shuffles won't propagate to workers). "
+                "Force-disabling it for the training DataLoader."
+            )
+            # we'll honor this in train_dataloader() by stripping the flag
+
         # coerce list-shaped Hydra args (ListConfig/list/tuple/scalar) into
-        # plain `list[float]`. For training, `OnDemandDataset` is the single
-        # source of truth for SNR/weights validation and for normalizing weights
-        # to sum to 1; we just pass these through to it.
+        # plain `list[float]`. Validation of length and non-negativity happens
+        # inside the dataset classes via `build_group_dist` / `build_loss_weights`.
         self.ebno_dB_test = to_float_list(ebno_dB_test) or [0.0]
         self.ebno_dB_train = to_float_list(ebno_dB_train)
-        self.ebno_dB_train_weights = to_float_list(ebno_dB_train_weights)
+        self.batch_mix = to_float_list(batch_mix)
+        self.loss_weights = to_float_list(loss_weights)
 
         # resolve the validation SNR — single value required to be meaningful.
-        # Only used in pure on-demand mode (mixed and pure-fixed modes derive
-        # validation from the file). In on-demand mode, defaults to the training
-        # SNR if that is a single value (backward compatible); must be specified
-        # explicitly when training mixes several SNRs.
+        # Only used in on-demand mode (dataset mode derives validation
+        # from the first training file). Defaults to the training SNR when that
+        # is a single value (backward compatible); must be specified explicitly
+        # when training mixes several SNRs.
         if self.on_demand:
             assert self.ebno_dB_train is not None
             if ebno_dB_val is not None:
@@ -721,13 +743,12 @@ class SBNDDataModule(LightningDataModule):
         else:
             self.ebno_dB_val = None
 
-        # ensure on_demand_ratio attribute is always defined; set to 0 in modes
-        # where there is no mixing happening
-        if not self.mixed:
-            self.on_demand_ratio = 0.0
-
     def _load_ds(
-        self, mat_file: str, n_samples: int, train: bool = False
+        self,
+        mat_file: str,
+        n_samples: int,
+        train: bool = False,
+        w_per_sample: float = 1.0,
     ) -> tuple[SBNDDataset, int]:
         y, e = load_matlab_data(mat_file)
         assert (
@@ -743,8 +764,194 @@ class SBNDDataModule(LightningDataModule):
             self.transform if train else None
         )  # apply transforms to training data only
         return (
-            SBNDDataset(self.code, y, e, transform, self.error_space),
+            SBNDDataset(
+                self.code, y, e, transform, self.error_space, w_per_sample=w_per_sample
+            ),
             n_samples,
+        )
+
+    def _setup_dataset_training(self) -> None:
+        """Set up `self.train_ds` and `self.val_ds` from `self.train_files`.
+        Handles both the single-file (K=1, backcompat path) and multi-file
+        (K>=2) cases, plus the validation split / `val_file` logic."""
+        assert self.train_files is not None
+        K = len(self.train_files)
+
+        # per-group loss weights (length K, default all-ones)
+        loss_w = build_loss_weights(self.loss_weights, K)
+        # per-group batch proportions (length K, default uniform), only used for K>=2
+        batch_mix_t = build_batch_mix(K, self.batch_mix, name="train_file")
+
+        # load each training file as its own SBNDDataset, stamped with its
+        # per-dataset loss weight; the validation split below shares (y, e)
+        # storage with the FIRST loaded dataset
+        loaded: list[SBNDDataset] = []
+        per_file_n: list[int] = []
+        for k, path in enumerate(self.train_files):
+            ds, n = self._load_ds(
+                path,
+                self.n_train_samples,
+                train=True,
+                w_per_sample=float(loss_w[k].item()),
+            )
+            loaded.append(ds)
+            per_file_n.append(n)
+            log.info(f"Loaded {n} samples from training file: {path}")
+
+        # ----- validation set (always built from the FIRST training file) -----
+        first_ds = loaded[0]
+        first_n = per_file_n[0]
+
+        if self.val_file is not None:
+            self.val_ds, self.n_val_samples = self._load_ds(
+                self.val_file, self.n_val_samples, train=False
+            )
+            log.info(
+                f"Loaded {self.n_val_samples} samples from the validation set file: {self.val_file}"
+            )
+        else:
+            if self.n_val_samples == 0:
+                self.n_val_samples = first_n // 4  # default split ratio = 75/25
+            if self.n_val_samples >= first_n:
+                raise ValueError(
+                    f"n_val_samples ({self.n_val_samples}) must be < the number of loaded "
+                    f"training samples in the first file ({first_n})"
+                )
+            train_n = first_n - self.n_val_samples
+            train_subset, val_subset = random_split(
+                first_ds, [train_n, self.n_val_samples]
+            )
+            # validation gets a sibling dataset with the same (y, e) storage but
+            # no transform and unit loss weight (validation is never reweighted)
+            val_base = SBNDDataset(
+                self.code,
+                first_ds.y,
+                first_ds.e,
+                transform=None,
+                error_space=self.error_space,
+                w_per_sample=1.0,
+            )
+            self.val_ds = Subset(val_base, list(val_subset.indices))
+            # replace first training dataset with the train-only Subset (so multi-file
+            # mode draws its first-file samples from outside the validation rows).
+            # Subset behaves equivalently to SBNDDataset for our access pattern
+            # (forwards __getitems__), so MultiDatasetTrainDataset accepts it
+            # transparently — see its docstring.
+            loaded[0] = train_subset  # type: ignore[call-overload]
+            per_file_n[0] = train_n
+            split_ratio = train_n / (train_n + self.n_val_samples)
+            log.info(
+                f"Created a {100*split_ratio:.0f}%/{100*(1-split_ratio):.0f}% random split"
+                f" from {self.train_files[0]!r} with {train_n} samples for training"
+                f" and {self.n_val_samples} samples for validation"
+            )
+
+        # ----- training set -----
+        if K == 1:
+            # single-file path preserves the standard shuffled DataLoader
+            # behavior (Lightning auto-wraps with DistributedSampler under DDP)
+            self.train_ds = loaded[0]
+            self.n_train_samples = per_file_n[0]
+            if self.batch_mix is not None:
+                log.warning(
+                    "batch_mix is set but only one train_file is provided; ignored"
+                )
+            if self.loss_weights is not None:
+                log.info(
+                    f"Per-sample loss weight = {loss_w[0].item():.3f} for all training samples"
+                )
+        else:
+            # multi-file path: batch-producing dataset; per-epoch shuffles
+            # seeded by (base_seed, epoch) via set_epoch (called from
+            # on_train_epoch_start). DDP correctness is documented in
+            # MultiDatasetTrainDataset.
+            counts = proportional_counts(
+                batch_mix_t, self.train_bs, group_labels=self.train_files
+            )
+            mdt = MultiDatasetTrainDataset(loaded, counts, base_seed=self.base_seed)
+            self.train_ds = mdt
+            self.n_train_samples = mdt.n_batches * self.train_bs
+            # per-file utilization report
+            util = [
+                100.0 * mdt.n_batches * int(c) / n
+                for c, n in zip(counts.tolist(), per_file_n)
+            ]
+            mix_str = ", ".join(
+                f"{path!r}: count={int(c)}/batch, "
+                f"loss_w={float(loss_w[k].item()):.3g}, "
+                f"epoch util={util[k]:.0f}%"
+                for k, (path, c) in enumerate(zip(self.train_files, counts.tolist()))
+            )
+            log.info(
+                f"Created a multi-file training mix over {K} datasets: "
+                f"{mdt.n_batches} batches/epoch ({self.n_train_samples} samples/epoch); "
+                f"per-file: {mix_str}"
+            )
+
+    def _setup_on_demand_training(self) -> None:
+        assert self.ebno_dB_train is not None
+        assert self.ebno_dB_val is not None
+
+        # create on-demand training set
+        n_train_batches = self.n_train_samples // self.train_bs
+        if n_train_batches == 0:
+            raise ValueError(
+                f"n_train_samples ({self.n_train_samples}) must be >= train_bs ({self.train_bs})"
+            )
+        self.n_train_samples = (
+            n_train_batches * self.train_bs
+        )  # adjust samples count in case of rounding
+
+        self.train_ds = OnDemandDataset(
+            self.code,
+            self.ebno_dB_train,
+            n_train_batches,
+            self.train_bs,
+            train=True,
+            error_space=self.error_space,
+            batch_mix=self.batch_mix,
+            loss_weights=self.loss_weights,
+        )
+        # log the resulting SNR distribution by reading back the
+        # already-normalized tensors from the dataset
+        train_ds = cast(OnDemandDataset, self.train_ds)
+        snrs = train_ds.ebno_dB.tolist()
+        if len(snrs) == 1:
+            log.info(
+                f"Created an on-demand training set of {self.n_train_samples} "
+                f"true error patterns at Eb/N0={snrs[0]} dB"
+            )
+        else:
+            mix = train_ds.batch_mix.tolist()
+            loss_w = train_ds.loss_weights.tolist()
+            mix_str = ", ".join(
+                f"{snr}dB: mix={m:.3f}, loss_w={lw:.3g}"
+                for snr, m, lw in zip(snrs, mix, loss_w)
+            )
+            log.info(
+                f"Created an on-demand training set of {self.n_train_samples} "
+                f"true error patterns at Eb/N0 ∈ {{{mix_str}}} (mixed within batches)"
+            )
+
+        # create on-demand validation set (always at a single SNR)
+        if self.n_val_samples == 0:
+            self.n_val_samples = self.n_train_samples // 4
+        n_val_batches = self.n_val_samples // self.val_bs
+        if n_val_batches == 0:
+            raise ValueError(
+                f"n_val_samples ({self.n_val_samples}) must be >= val_bs ({self.val_bs})"
+            )
+        self.n_val_samples = n_val_batches * self.val_bs
+        self.val_ds = OnDemandDataset(
+            self.code,
+            self.ebno_dB_val,
+            n_val_batches,
+            self.val_bs,
+            train=True,
+            error_space=self.error_space,
+        )
+        log.info(
+            f"Created an on-demand validation set of {self.n_val_samples} true error patterns at Eb/N0={self.ebno_dB_val} dB"
         )
 
     def setup(self, stage: str | None = None) -> None:
@@ -755,167 +962,10 @@ class SBNDDataModule(LightningDataModule):
             )
 
         if stage == "fit":
-
-            # setup training set
-            if self.train_file is not None:
-
-                loaded_ds, self.n_train_samples = self._load_ds(
-                    self.train_file, self.n_train_samples, train=True
-                )
-                self.train_ds = loaded_ds
-                log.info(
-                    f"Loaded {self.n_train_samples} samples from the training set file: {self.train_file}"
-                )
-
-                if self.val_file is not None:
-
-                    # load validation set from user-specified file
-                    self.val_ds, self.n_val_samples = self._load_ds(
-                        self.val_file, self.n_val_samples, train=False
-                    )
-                    log.info(
-                        f"Loaded {self.n_val_samples} samples from the validation set file: {self.val_file}"
-                    )
-
-                else:
-
-                    if self.n_val_samples == 0:
-                        # validation set size defaults to 25% of training set
-                        self.n_val_samples = self.n_train_samples // 4
-
-                    if self.n_val_samples >= self.n_train_samples:
-                        raise ValueError(
-                            f"n_val_samples ({self.n_val_samples}) must be < the number of loaded "
-                            f"training samples ({self.n_train_samples})"
-                        )
-                    self.n_train_samples -= self.n_val_samples
-                    train_subset, val_subset = random_split(
-                        loaded_ds, [self.n_train_samples, self.n_val_samples]
-                    )
-                    # build a sibling dataset that shares the same (y, e) tensor storage
-                    # but has no transform, so validation samples are not augmented
-                    val_base = SBNDDataset(
-                        self.code,
-                        loaded_ds.y,
-                        loaded_ds.e,
-                        transform=None,
-                        error_space=self.error_space,
-                    )
-                    self.val_ds = Subset(val_base, list(val_subset.indices))
-                    self.train_ds = train_subset
-                    split_ratio = self.n_train_samples / (
-                        self.n_train_samples + self.n_val_samples
-                    )
-                    log.info(
-                        f"Created a {100*split_ratio:.0f}%/{100*(1-split_ratio):.0f}% random split with"
-                        + f" {self.n_train_samples} samples for training and {self.n_val_samples} samples for validation"
-                    )
-
-                # in MIXED mode, augment the fixed training set with an
-                # `OnDemandSampleDataset` of size derived from `on_demand_ratio`
-                # (rounded down to a multiple of `train_bs` for clean batching).
-                # Validation is left untouched — it stays purely fixed-dataset.
-                if self.mixed:
-                    assert self.ebno_dB_train is not None
-                    ratio = self.on_demand_ratio
-                    n_on_demand = round(self.n_train_samples * ratio / (1 - ratio))
-                    n_on_demand = (n_on_demand // self.train_bs) * self.train_bs
-                    on_demand_ds = OnDemandSampleDataset(
-                        self.code,
-                        self.ebno_dB_train,
-                        n_samples=n_on_demand,
-                        error_space=self.error_space,
-                        weights=self.ebno_dB_train_weights,
-                    )
-                    # pre-populate the cache entry for `train_bs` (the size every
-                    # __getitems__ call will request) in the parent process, so
-                    # forked DataLoader workers inherit it and the tiny-weight
-                    # warning, if any, fires only once
-                    on_demand_ds.counts_for(self.train_bs)
-                    self.train_ds = MixedTrainDataset(self.train_ds, on_demand_ds)
-                    snrs = on_demand_ds.ebno_dB.tolist()
-                    weights = on_demand_ds.weights.tolist()
-                    if len(snrs) == 1:
-                        snr_str = f"Eb/N0={snrs[0]} dB"
-                    else:
-                        mix_str = ", ".join(
-                            f"{s}dB: {w:.3f}" for s, w in zip(snrs, weights)
-                        )
-                        snr_str = f"Eb/N0 ∈ {{{mix_str}}}"
-                    log.info(
-                        f"Augmented training set with {n_on_demand} on-demand "
-                        f"samples ({snr_str}); each batch is now ~{100*ratio:.0f}% "
-                        f"on-demand in expectation"
-                    )
-
-                return
-
+            if self.on_demand:
+                self._setup_on_demand_training()
             else:
-
-                # defaults to on-demand setup
-                assert self.on_demand
-                assert self.ebno_dB_train is not None
-                assert self.ebno_dB_val is not None
-
-                # create on-demand training set
-                n_train_batches = self.n_train_samples // self.train_bs
-                if n_train_batches == 0:
-                    raise ValueError(
-                        f"n_train_samples ({self.n_train_samples}) must be >= train_bs ({self.train_bs})"
-                    )
-                self.n_train_samples = (
-                    n_train_batches * self.train_bs
-                )  # adjust samples count in case of rounding
-
-                self.train_ds = OnDemandDataset(
-                    self.code,
-                    self.ebno_dB_train,
-                    n_train_batches,
-                    self.train_bs,
-                    train=True,
-                    error_space=self.error_space,
-                    weights=self.ebno_dB_train_weights,
-                )
-                # log the resulting SNR distribution by reading back the
-                # already-normalized tensors from the dataset
-                snrs = self.train_ds.ebno_dB.tolist()
-                if len(snrs) == 1:
-                    log.info(
-                        f"Created an on-demand training set of {self.n_train_samples} "
-                        f"true error patterns at Eb/N0={snrs[0]} dB"
-                    )
-                else:
-                    weights = self.train_ds.weights.tolist()
-                    mix_str = ", ".join(
-                        f"{snr}dB: {w:.3f}" for snr, w in zip(snrs, weights)
-                    )
-                    log.info(
-                        f"Created an on-demand training set of {self.n_train_samples} "
-                        f"true error patterns at Eb/N0 ∈ {{{mix_str}}} (mixed within batches)"
-                    )
-
-                # create on-demand validation set (always at a single SNR)
-                if self.n_val_samples == 0:
-                    # validation set size defaults to 25% of training set
-                    self.n_val_samples = self.n_train_samples // 4
-                n_val_batches = self.n_val_samples // self.val_bs
-                if n_val_batches == 0:
-                    raise ValueError(
-                        f"n_val_samples ({self.n_val_samples}) must be >= val_bs ({self.val_bs})"
-                    )
-                self.n_val_samples = n_val_batches * self.val_bs
-                self.val_ds = OnDemandDataset(
-                    self.code,
-                    self.ebno_dB_val,
-                    n_val_batches,
-                    self.val_bs,
-                    train=True,
-                    error_space=self.error_space,
-                )
-                log.info(
-                    f"Created an on-demand validation set of {self.n_val_samples} true error patterns at Eb/N0={self.ebno_dB_val} dB"
-                )
-
+                self._setup_dataset_training()
             return
 
         if stage == "test":
@@ -929,7 +979,7 @@ class SBNDDataModule(LightningDataModule):
             self.n_test_samples = n_test_batches * self.test_bs
 
             self.test_ds = []
-            for ebno_dB in self.ebno_dB_test:  # type: ignore[union-attr]
+            for ebno_dB in self.ebno_dB_test:
                 self.test_ds.append(
                     OnDemandDataset(
                         self.code,
@@ -944,13 +994,34 @@ class SBNDDataModule(LightningDataModule):
                     f"Created an on-demand test set of {self.n_test_samples} true error patterns at Eb/N0={ebno_dB} dB"
                 )
 
+    def on_train_epoch_start(self) -> None:
+        # Reshuffle per-dataset index lists in multi-file dataset mode. Called
+        # from the main process before the training DataLoader starts iterating;
+        # this guarantees workers spawned for the epoch inherit the new state
+        # via pickle. Single-file and on-demand training don't need this.
+        if isinstance(self.train_ds, MultiDatasetTrainDataset):
+            assert self.trainer is not None
+            self.train_ds.set_epoch(self.trainer.current_epoch)
+
+    def _train_extra_args(self) -> dict:
+        # strip persistent_workers=True for multi-file dataset training
+        if isinstance(self.train_ds, MultiDatasetTrainDataset):
+            return {
+                k: v for k, v in self.extra_args.items() if k != "persistent_workers"
+            }
+        return self.extra_args
+
     def train_dataloader(self) -> DataLoader:
-        if self.on_demand:
-            return DataLoader(self.train_ds, batch_size=None, **self.extra_args)
-        else:
+        if isinstance(self.train_ds, MultiDatasetTrainDataset) or self.on_demand:
+            # batch-producing datasets → automatic batching disabled
             return DataLoader(
-                self.train_ds, batch_size=self.train_bs, shuffle=True, **self.extra_args
+                self.train_ds, batch_size=None, **self._train_extra_args()
             )
+        # single-file fixed dataset → standard shuffled DataLoader (Lightning
+        # auto-wraps with DistributedSampler under DDP)
+        return DataLoader(
+            self.train_ds, batch_size=self.train_bs, shuffle=True, **self.extra_args
+        )
 
     def val_dataloader(self) -> DataLoader:
         if self.on_demand:

@@ -53,10 +53,18 @@ class SBNDLitModule(LightningModule):
     def forward(self, ym: Tensor, s: Tensor) -> Tensor:
         return self.decoder(ym, s) * self.llr_scaling
 
-    def _cw_loss(self, e_pred: Tensor, e_true: Tensor) -> Tensor:
-        return F.binary_cross_entropy_with_logits(
-            -e_pred, e_true.float()
-        )  # prob(e=1) = sigmoid(-e_pred)
+    def _cw_loss(self, e_pred: Tensor, e_true: Tensor, w: Tensor) -> Tensor:
+        # Weighted batch mean: L = sum_i w_i * mean_j(BCE_ij) / sum_i w_i.
+        # Scale-invariant in w; reduces to plain mean-BCE when w == 1.
+        # See docs/training.md ("Per-group loss reweighting") for the rationale,
+        # the relation to Wiesmayr et al.'s per-group-mean formulation, and how
+        # batch_mix couples with loss_weights into effective emphasis coefficients.
+        per_sample = F.binary_cross_entropy_with_logits(
+            -e_pred, e_true.float(), reduction="none"
+        ).mean(
+            dim=1
+        )  # shape (B,), uses the fact that prob(e=1) = sigmoid(-e_pred)
+        return (w * per_sample).sum() / w.sum()
 
     def _cw_accuracy(self, e_pred: Tensor, e_true: Tensor) -> Tensor:
         e_pred_bin = llr_to_bit(e_pred)
@@ -68,15 +76,17 @@ class SBNDLitModule(LightningModule):
         )
         return torch.mean(is_equal.float()).detach()
 
-    def model_step(self, batch: tuple[Tensor, Tensor, Tensor]) -> tuple[Tensor, Tensor]:
-        ym, s, e_true = batch
+    def model_step(
+        self, batch: tuple[Tensor, Tensor, Tensor, Tensor]
+    ) -> tuple[Tensor, Tensor]:
+        ym, s, e_true, w = batch
         e_pred = self(ym, s)
-        loss = self._cw_loss(e_pred, e_true)
+        loss = self._cw_loss(e_pred, e_true, w)
         acc = self._cw_accuracy(e_pred, e_true)
         return loss, acc
 
     def training_step(
-        self, batch: tuple[Tensor, Tensor, Tensor], batch_idx: int
+        self, batch: tuple[Tensor, Tensor, Tensor, Tensor], batch_idx: int
     ) -> Tensor:
         loss, acc = self.model_step(batch)
         self.log(
@@ -99,7 +109,7 @@ class SBNDLitModule(LightningModule):
         return loss
 
     def validation_step(
-        self, batch: tuple[Tensor, Tensor, Tensor], batch_idx: int
+        self, batch: tuple[Tensor, Tensor, Tensor, Tensor], batch_idx: int
     ) -> None:
         loss, acc = self.model_step(batch)
         self.log(
@@ -117,7 +127,7 @@ class SBNDLitModule(LightningModule):
 
     def test_step(
         self,
-        batch: tuple[Tensor, Tensor, Tensor],
+        batch: tuple[Tensor, Tensor, Tensor, Tensor],
         batch_idx: int,
         dataloader_idx: int = 0,
     ) -> None:
@@ -151,9 +161,9 @@ class SBNDLitModule(LightningModule):
         )
 
     def predict_step(
-        self, batch: tuple[Tensor, Tensor, Tensor], batch_idx: int
+        self, batch: tuple[Tensor, Tensor, Tensor, Tensor], batch_idx: int
     ) -> tuple[Tensor, Tensor, Tensor]:
-        ym, s, e_true = batch
+        ym, s, e_true, _ = batch  # per-sample loss weight unused at inference
         e_pred = self(ym, s)
         return e_pred, e_true, s  # preds, targets, syndromes
 
@@ -258,7 +268,10 @@ class SBNDLitModule(LightningModule):
         self.log_dict(metrics, on_epoch=True, on_step=False, sync_dist=True)
 
     def on_train_batch_end(
-        self, outputs: Any, batch: tuple[Tensor, Tensor, Tensor], batch_idx: int
+        self,
+        outputs: Any,
+        batch: tuple[Tensor, Tensor, Tensor, Tensor],
+        batch_idx: int,
     ) -> None:
         loss = outputs["loss"]
         if torch.isnan(loss) or torch.isinf(loss):
