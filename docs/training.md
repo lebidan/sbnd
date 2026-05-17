@@ -153,9 +153,9 @@ Additional datasets used to produce the results in our [ICMLCN 2025 paper](https
 
 ### Per-group loss reweighting
 
-Inspired by [Wiesmayr et al.](https://arxiv.org/abs/2210.14103), both training modes accept an optional `loss_weights` list whose length matches the number of groups (SNR points for on-demand, files for pre-computed). Each entry attaches a per-sample scalar weight to every sample of that group; the LitModule then computes a **weighted batch mean** loss:
+Since not all SNR points are equally important for training, following an idea of [Wiesmayr et al.](https://arxiv.org/abs/2210.14103), both training modes accept an optional `loss_weights` list whose length matches the number of groups (SNR points for on-demand, files for pre-computed). Each entry attaches a per-sample scalar weight to every sample of that group; the [`SBNDLitModule`](../src/model.py) then computes a **weighted batch mean** loss:
 
-$$L \;=\; \frac{\sum_i w_i \cdot \overline{\text{BCE}}_i}{\sum_i w_i}, \qquad \overline{\text{BCE}}_i = \tfrac{1}{n}\sum_j \text{BCE}_{ij}$$
+$$L = \frac{\sum_i w_i \cdot \overline{\text{BCE}}_i}{\sum_i w_i}, \qquad \overline{\text{BCE}}_i = \tfrac{1}{n}\sum_j \text{BCE}_{ij}$$
 
 where `w_i` is the per-sample weight (the `loss_weights[k]` of whichever group sample `i` belongs to) and `BCE_ij` is the bit-level cross-entropy. The default `loss_weights = [1, …, 1]` reduces exactly to the standard mean BCE, so the option is fully backward compatible.
 
@@ -181,13 +181,13 @@ Anything Wiesmayr can express, SBND can express; the converse isn't true (e.g. o
 
 Formally, Wiesmayr's per-group-mean loss is
 
-$$L_{\text{Wiesmayr}} \;=\; \sum_k \alpha_k \cdot m_k, \qquad m_k = \mathbb{E}_{(y,e)\sim\text{group } k}\!\left[\overline{\text{BCE}}\right]$$
+$$L_{\text{Wiesmayr}} = \sum_k \alpha_k \cdot m_k, \qquad m_k = \mathbb{E}_{(y,e)\sim\text{group } k}\left[\overline{\text{BCE}}\right]$$
 
 where each `m_k` is estimated by averaging the BCE over the rows of group `k` in the batch.
 
 SBND's weighted batch mean, with per-batch counts `N_k` (set by `batch_mix`) and `p_k = N_k / B`, expands to
 
-$$L \;=\; \frac{\sum_k w_k \cdot N_k \cdot m_k}{\sum_k w_k \cdot N_k} \;=\; \sum_k \underbrace{\frac{w_k \cdot p_k}{\sum_j w_j p_j}}_{\alpha_k^{\text{eff}}} \cdot m_k$$
+$$L = \frac{\sum_k w_k \cdot N_k \cdot m_k}{\sum_k w_k \cdot N_k} = \sum_k \underbrace{\frac{w_k \cdot p_k}{\sum_j w_j p_j}}_{\alpha_k^{\text{eff}}} \cdot m_k$$
 
 so the **effective Wiesmayr coefficient is** `α_k^eff ∝ w_k · p_k` — `loss_weights` and `batch_mix` multiply into emphasis. Two practical consequences:
 
