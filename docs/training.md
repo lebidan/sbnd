@@ -12,7 +12,7 @@ This document is the reference guide for configuring and running training jobs w
    - [On-demand generation](#on-demand-generation)
    - [Pre-computed datasets](#pre-computed-datasets)
    - [Pre-computed dataset format and download](#pre-computed-dataset-format-and-download)
-   - [Per-group loss reweighting](#per-group-loss-reweighting)
+   - [Loss reweighting](#per-group-loss-reweighting)
    - [Data augmentation](#data-augmentation)
 4. [Model](#model)
 5. [Trainer](#trainer)
@@ -48,11 +48,11 @@ Training and evaluation data are handled by the [`SBNDDataModule`](../src/data.p
 
 > Important note: all the codebase assumes the following binary-to-bipolar BPSK symbol mapping: `0` -> `+1`, `1` -> `-1`.
 
-SBND currently supports two main training data strategies, on-demand data and pre-computed datasets, selected by whether training dataset files are specified (variable `train_file` set) or not (the default). Both strategies support mixing several groups within each batch — multiple SNR points for on-demand, multiple files for pre-computed datasets — controlled by a shared `batch_mix` parameter, and both support [per-group loss reweighting](#per-group-loss-reweighting) via `loss_weights`.
+SBND currently supports two main training data strategies: on-demand data and pre-computed datasets, selected by whether a training dataset file is specified (variable `train_file` set) or not (the default). Both strategies support mixing training samples from several groups (multiple SNR points for on-demand, multiple files for pre-computed datasets) within each batch. The per-batch data mix is controlled by a shared `batch_mix` parameter. Both training modes also support [per-group loss reweighting](#per-group-loss-reweighting) via `loss_weights`.
 
 ### On-demand generation
 
-This is the default mode, used when `train_file` is omitted. Noisy codewords are generated randomly at every training step, so the model is exposed to fresh data at each step and no sample is ever repeated. This mode avoids managing large dataset files and is the simplest way to get started. Data augmentation is not applied here, since each batch is already unique. The downside is that the model is effectively trained for perfect correction, an unrealistic objective that ultimately limits WER performance — see our [ICMLCN 2025 paper](https://arxiv.org/abs/2502.10183) for a detailed analysis.
+This is the default mode, used when `train_file` is omitted. Noisy codewords are generated randomly at every training step, so the model is exposed to fresh data at each step and no sample is ever repeated. This mode avoids managing large dataset files and is the simplest way to get started. The downside is that the model is effectively trained for perfect correction, an unrealistic objective that ultimately limits WER performance — see our [ICMLCN 2025 paper](https://arxiv.org/abs/2502.10183) for a detailed analysis. On-demand training mode silently ignores data augmentation since each batch is already unique. 
 
 In on-demand mode, a training epoch consists of `n_train_samples / train_bs` steps. The mode requires `ebno_dB_train` and a non-zero `n_train_samples`. If `n_val_samples` is not given, validation defaults to 25% of `n_train_samples`. Both `n_train_samples` and `n_val_samples` are rounded down to the nearest multiple of `train_bs` and `val_bs` respectively.
 
@@ -75,7 +75,7 @@ data:
   _target_: sbnd.data.SBNDDataModule
   ebno_dB_train: [2.0, 3.0, 4.0]
   batch_mix: [0.6, 0.3, 0.1]   # 60% / 30% / 10%; uniform if omitted
-  ebno_dB_val: 3.0              # required when ebno_dB_train is a list
+  ebno_dB_val: 3.0             # required when ebno_dB_train is a list
   n_train_samples: 1048576
   train_bs: 4096
 ```
@@ -90,9 +90,9 @@ Validation must always run at a single SNR — an error rate measured on a mix o
 
 When `train_file` is specified, training and validation data are loaded from user-supplied `.mat` dataset files. Each file must contain a matrix of received words `y` and a matrix of target binary error patterns `e`. The same fixed dataset is reused at each epoch, which gives total control over the training distribution. With well-chosen samples, this allows approaching Maximum Likelihood decoding performance with [significantly fewer training samples than on-demand data](https://arxiv.org/abs/2502.10183).
 
-If no `val_file` is provided, a validation set is created by randomly splitting the training set. The default split ratio is 75% / 25%, overridable by setting `n_val_samples` explicitly. The training transform, if any, is applied only to the training subset; validation samples are never augmented.
+If no `val_file` is provided, a validation set is created by randomly splitting the training set. The default split ratio is 75% / 25%, overridable by setting `n_val_samples` explicitly. [Data augmentation](#data-augmentation), if any, is applied only to the training subset; validation samples are never augmented.
 
-`n_train_samples` defaults to 0, meaning the entire file is used; set it to a positive value to use only the first N rows. `n_val_samples` behaves identically when loading from `val_file`.
+`n_train_samples` defaults to 0, meaning the entire file is used; set it to a positive value to use only the first N samples. `n_val_samples` behaves identically when loading from `val_file`.
 
 The `data_dir` variable defaults to `./data/datasets` and is defined in [`conf/train.yaml`](../conf/train.yaml).
 
@@ -105,11 +105,9 @@ data:
   val_bs: 4096
 ```
 
-**Forbidden combinations.** Setting `val_file` without `train_file` is rejected at construction time (on-demand mode does not load validation data from a file). On-demand mode silently ignores `transform`, since each batch is already unique.
-
 #### Mixing several pre-computed datasets
 
-`train_file` can also be a list of filenames, in which case each batch is a deterministic mixture of rows drawn from each file. The same `batch_mix` knob used for multi-SNR on-demand training controls the per-file proportions (defaults to uniform), and the same proportional rounding (with a one-sample floor) produces fixed per-batch counts:
+`train_file` can also be a list of filenames, in which case each batch is a deterministic mixture of training samples drawn from each file. The same `batch_mix` parameter used for multi-SNR on-demand training controls the per-file proportions (defaults to uniform), and the same proportional rounding (with a one-sample floor) is used to convert sample ratios to fixed per-batch counts `c_k = round(batch_mix[k] * train_bs)`:
 
 ```yaml
 data:
@@ -117,12 +115,12 @@ data:
   train_file:
     - ${data_dir}/bch-63-45/train-ml-4M-2dB.mat
     - ${data_dir}/bch-63-45/train-ml-4M-3dB.mat
-  batch_mix: [0.7, 0.3]      # 70% rows from file 0, 30% from file 1; uniform if omitted
+  batch_mix: [0.7, 0.3]      # 70% rows from file 1, 30% from file 2; uniform if omitted
   train_bs: 4096
   # val_file: omitted → split from the FIRST training file (75/25 default)
 ```
 
-**Epoch length and dataset utilization.** With per-batch counts `c_k` and per-file sizes `N_k`, an epoch contains `n_batches = min_k floor(N_k / c_k)` batches — the limit imposed by the file that runs out first under its share of the batch. This guarantees that no row appears in two batches of the same epoch. Larger files are partially traversed each epoch; their unused rows are seen on later epochs after the per-file index shuffle (which is reseeded deterministically every epoch, identically across DDP ranks). A per-file utilization summary (`epoch util=...%`) is logged at startup so this is visible.
+**Epoch length and dataset utilization.** With per-batch counts `c_k` and per-file sizes `N_k`, an epoch contains `n_batches = min_k floor(N_k / c_k)` batches — the limit imposed by the file that runs out first under its share of the batch. This guarantees that no training sample appears in two batches of the same epoch. Larger files are partially traversed each epoch; their unused samples are seen on later epochs after the per-file index shuffle (which is reseeded deterministically every epoch, identically across DDP ranks). A per-file utilization summary (`epoch util=...%`) is logged at startup to inform the user.
 
 **Validation.** When `train_file` is a list and no `val_file` is given, the validation set is split from the **first** training file (same 75/25 default). The other files contribute only to training. Pass `val_file` explicitly to override.
 
@@ -153,11 +151,11 @@ Additional datasets used to produce the results in our [ICMLCN 2025 paper](https
 
 ### Per-group loss reweighting
 
-Since not all SNR points are equally important for training, following an idea of [Wiesmayr et al.](https://arxiv.org/abs/2210.14103), both training modes accept an optional `loss_weights` list whose length matches the number of groups (SNR points for on-demand, files for pre-computed). Each entry attaches a per-sample scalar weight to every sample of that group; the [`SBNDLitModule`](../src/model.py) then computes a **weighted batch mean** loss:
+Experimental evidence suggests that not all SNR points are equally important for training. Following an idea of [Wiesmayr et al.](https://arxiv.org/abs/2210.14103), both training modes accept an optional `loss_weights` list whose length matches the number of groups (SNR points for on-demand, files for pre-computed datasets). Each entry attaches a per-sample scalar weight to every sample of that group within a training batch. The [`SBNDLitModule`](../src/model.py) then computes a **weighted batch mean** loss:
 
 $$L = \frac{\sum_i w_i \cdot \overline{\text{BCE}}_i}{\sum_i w_i}, \qquad \overline{\text{BCE}}_i = \tfrac{1}{n}\sum_j \text{BCE}_{ij}$$
 
-where `w_i` is the per-sample weight (the `loss_weights[k]` of whichever group sample `i` belongs to) and `BCE_ij` is the bit-level cross-entropy. The default `loss_weights = [1, …, 1]` reduces exactly to the standard mean BCE, so the option is fully backward compatible.
+where `w_i` is the per-sample weight (the `loss_weights[k]` of whichever group `k` sample i belongs to), $\text{BCE}_{ij}$ is the bit-level cross-entropy for code bit `j` of training sample `i`, and `n` is the code length. The default `loss_weights` is `[1, …, 1]` (uniform), in which case the above weighted batch mean reduces exactly to the standard mean BCE. 
 
 ```yaml
 data:
@@ -166,39 +164,37 @@ data:
   loss_weights:  [1.0, 2.0, 4.0]     # per-sample loss multiplier per group
 ```
 
-**Scale-invariance.** Multiplying `loss_weights` by any positive constant α leaves L unchanged. Only the *relative* values matter, so you don't need to think about normalization or whether you're inadvertently scaling your learning rate.
+**Scale-invariance.** Multiplying `loss_weights` by any positive constant α leaves the loss L unchanged. Only the *relative* values matter, so you don't need to think about normalization or whether you're inadvertently scaling your learning rate.
 
-**Use this knob deliberately**, alongside `batch_mix`. Decoder models often deal well with high-SNR samples (most of them are corrected with little gradient signal) while low-SNR samples can be too hard to learn. `batch_mix` controls how often each group appears in a batch; `loss_weights` controls how much samples from each group contribute to the loss and gradient. The two are not interchangeable, and balancing them is one way to expose the model to more hard samples while keeping a meaningful gradient signal from the easy ones. We don't have a recipe to recommend — tune empirically for your code and operating conditions.
+**Use this knob deliberately**, alongside `batch_mix`. Decoder models often deal well with high-SNR samples (many of them are corrected with little gradient signal) while low-SNR samples can be too hard to learn. `batch_mix` controls how often each group appears in a batch; `loss_weights` controls how much samples from each group contribute to the loss and gradient. The two are not interchangeable, and balancing them is one way to expose the model to more hard samples while keeping a meaningful gradient signal from the easy ones. At present, unfortunately, we don't have a recipe to recommend — tune empirically for your code and operating conditions.
 
 #### Relation to [Wiesmayr et al.](https://arxiv.org/abs/2210.14103)
 
-TL;DR: At a high level, the two approaches differ in *what they make tunable*:
+TL;DR: the two approaches differ in *what they make tunable*:
 
-- **Wiesmayr et al.** keep batch composition fixed (uniform SNR sampling over a chosen Eb/N0 range) and expose a single knob per group, the per-SNR emphasis coefficient `α_k`. The mix is a fixed Monte-Carlo estimator of K conditional means; the only thing the user tunes is how much each mean contributes.
+- **Wiesmayr et al.** keep batch composition fixed (uniform SNR sampling over a chosen Eb/N0 range) and expose a single knob per group, the per-SNR reweighting coefficient `α_k`. The mix is a fixed Monte-Carlo estimator of K conditional means; the only thing the user tunes is how much each mean contributes.
 - **SBND** exposes both knobs independently: `batch_mix` controls per-batch composition (how often each group appears) and `loss_weights` controls per-group emphasis (how much each appearance counts). Wiesmayr's setup is recovered as the special case `batch_mix = uniform`.
 
-Anything Wiesmayr can express, SBND can express; the converse isn't true (e.g. over-sampling hard groups while compensating their lower per-sample weight has no analogue in Wiesmayr's formulation). The cost is a small coupling between the two knobs when both deviate from uniform, worked out below.
+Anything Wiesmayr can express, SBND can express; the converse isn't true. The cost is a small coupling between the two knobs when both deviate from uniform, worked out below.
 
 Formally, Wiesmayr's per-group-mean loss is
 
 $$L_{\text{Wiesmayr}} = \sum_k \alpha_k \cdot m_k, \qquad m_k = \mathbb{E}_{(y,e)\sim\text{group } k}\left[\overline{\text{BCE}}\right]$$
 
-where each `m_k` is estimated by averaging the BCE over the rows of group `k` in the batch.
+where each `m_k` is estimated by averaging the BCE over the samples of group `k` in the batch.
 
-SBND's weighted batch mean, with per-batch counts `N_k` (set by `batch_mix`) and `p_k = N_k / B`, expands to
+SBND's weighted batch mean, with per-batch counts `c_k` (set by `batch_mix`) and relative proportions `p_k = c_k / B`, expands to
 
-$$L = \frac{\sum_k w_k \cdot N_k \cdot m_k}{\sum_k w_k \cdot N_k} = \sum_k \underbrace{\frac{w_k \cdot p_k}{\sum_j w_j p_j}}_{\alpha_k^{\text{eff}}} \cdot m_k$$
+$$L = \frac{\sum_k w_k \cdot c_k \cdot m_k}{\sum_k w_k \cdot c_k} = \sum_k \underbrace{\frac{w_k \cdot p_k}{\sum_j w_j p_j}}_{\alpha_k^{\text{eff}}} \cdot m_k$$
 
-so the **effective Wiesmayr coefficient is** `α_k^eff ∝ w_k · p_k` — `loss_weights` and `batch_mix` multiply into emphasis. Two practical consequences:
+so the **effective Wiesmayr coefficient is** `α_k^eff ∝ w_k · p_k` — `loss_weights` and `batch_mix` multiply each other into emphasis. Two practical consequences:
 
-1. When `batch_mix` is uniform (all `p_k = 1/K`) — Wiesmayr's actual setting in the paper — the formulas coincide exactly with Wiesmayr's (normalized): `α_k^eff = w_k / Σ w`. A direct port of their recipe therefore lands you on the uniform-`batch_mix` case and `loss_weights` reads literally as their `α_k`.
-2. When `batch_mix` is non-uniform, to recover a target Wiesmayr coefficient set `loss_weights[k] = α_k / batch_mix[k]`.
-
-The coupling reflects the per-sample-weighting view (each row carries its own weight; the loss is a weighted batch mean) and stays scale-invariant in `w`. If you want `loss_weights` to read directly as Wiesmayr-style coefficients, keep `batch_mix` uniform.
+1. When `batch_mix` is uniform (all `p_k = 1/K`) — Wiesmayr's actual setting in the paper — the formulas coincide exactly with Wiesmayr's (normalized): `α_k^eff = w_k / Σ w`. A direct port of their recipe therefore lands you on the uniform-`batch_mix` case with their `α_k` as `loss_weights`.
+2. When `batch_mix` is non-uniform, to recover a target Wiesmayr coefficient `α_k`, set `loss_weights[k] = α_k / batch_mix[k]`.
 
 ### Data augmentation
 
-For pre-computed datasets, data augmentation is enabled via the `transform` option. This applies random permutations from the code's automorphism group to each batch, effectively multiplying the number of distinct training examples seen by the model. The same transform classes are reused at evaluation time for [test-time augmentation](evaluation.md#3-test-time-scaling). The classes available in [`src/transforms.py`](../src/transforms.py) are:
+For pre-computed datasets, data augmentation is enabled via the `transform` option. This applies random permutations from the code's automorphism group to each batch, effectively multiplying the number of distinct training examples seen by the model. The classes available in [`src/transforms.py`](../src/transforms.py) are:
 
 * [`BCHPerms`](../src/transforms.py) — cyclic × Frobenius permutations for BCH codes (works for extended BCH too with `is_extended: true`)
 * [`QCPerms`](../src/transforms.py) — quasi-cyclic shift permutations for QC-LDPC codes (requires the circulant size `Zc`)
@@ -282,7 +278,7 @@ trainer:
   gradient_clip_val: 1.0
 ```
 
-We recommend `bf16-mixed` precision for faster training without loss of accuracy, especially with transformer-based models. The only exception is the `StackedGRU` decoder, which we found to require `fp32` precision for both stability and performance. For the full list of supported trainer options, see the [Lightning Trainer documentation](https://lightning.ai/docs/pytorch/stable/common/trainer.html).
+We recommend `bf16-mixed` precision for faster training with negligible impact on accuracy  , especially with transformer-based models. The only exception is the `StackedGRU` decoder, which we found to require `fp32` precision for both stability and performance. For the full list of supported trainer options, see the [Lightning Trainer documentation](https://lightning.ai/docs/pytorch/stable/common/trainer.html).
 
 ## Resuming and continuing training
 

@@ -36,7 +36,7 @@ Syndrome-based neural decoding is a promising approach for soft-decision decodin
 
 `SBND` is built for researchers who want to close that gap. It ships with multiple architectures, reproducible baselines facilitating benchmarking, a flexible data pipeline, and a clean training infrastructure — everything you need to run experiments, test new ideas, and push neural decoders further.
 
-You are what you eat. So is your model. Feed it the best menu with `SBND` 🍽️
+You are what you eat — so is your model. SBND gives you full control over what goes on your model's plate: data sources, SNR mix, augmentation, and loss weighting. Feed it well 🍽️
 
 <b> ⭐ Performance highlights ⭐</b>
 
@@ -44,7 +44,7 @@ You are what you eat. So is your model. Feed it the best menu with `SBND` 🍽�
 
 <img alt="BCH(63,45,7) performance" src="https://raw.githubusercontent.com/lebidan/sbnd/main/media/fer_63_45.png?raw=true" width=90%>
 
-- Training the original ECCT with SBND brings ~two-order of magnitude WER improvement
+- Training ECCT with SBND brings ~two-order of magnitude WER improvement wrt previously published results
 - Same or better performance with half the number of parameters when switching to our recurrent ECCT model
 - Performance is within 0.2 dB of MLD and matches Chase-2 decoding with 64 test patterns
 
@@ -105,7 +105,7 @@ While current model performance is not record-breaking, the BER in the eval log 
 
 </details>
 
-<details><summary>Decoding a (128,64,8) Polar code w./wo test-time scaling</summary>
+<details><summary>Decoding a (128,64,8) Polar code w/wo test-time scaling</summary>
 
 <img alt="Polar(128,64,8) performance" src="https://raw.githubusercontent.com/lebidan/sbnd/main/media/fer_polar_128_64.png?raw=true" width=90%>
 
@@ -142,12 +142,12 @@ Help us improve on those baselines!
 * **Easy to extend** — add your own architecture by subclassing the [shared `BaseDecoder`](https://github.com/lebidan/sbnd/blob/main/src/decoder.py) and using the [template decoder](https://github.com/lebidan/sbnd/blob/main/src/mocked.py) as a starting point
 * **Two decoding modes** — standard codeword-level SBND, or message-level [iSBND](https://arxiv.org/abs/2402.13948) for non-systematic codes
 * **Hydra configuration** — every aspect of training is configurable via composable YAML files
-* **Flexible training data** — on-demand generation and pre-computed datasets, with deterministic per-batch mixing across multiple SNRs or files
-* **Per-group loss reweighting** — independently [emphasize each SNR](https://arxiv.org/abs/2210.14103) or dataset in the loss, on top of the batch composition
+* **Flexible training data** — train with on-demand data or pre-computed datasets, with deterministic per-batch sample mixing across multiple SNRs or training sets
+* **Per-group loss reweighting** — independently [emphasize each SNR or dataset](https://arxiv.org/abs/2210.14103) in the loss, on top of batch composition
 * **Data augmentation** — [leverage code automorphisms](https://arxiv.org/abs/2605.03620) to increase training diversity
 * **Multi-GPU** — distributed training via PyTorch Lightning DDP
 * **Monte Carlo evaluation** — evaluate trained models over configurable Eb/N0 ranges with BER/WER reporting
-* **Test-time scaling** — boost decoding performance at inference with sequential (self-boosting) or parallel (test-time augmentation) variants
+* **Test-time scaling** — boost decoding performance at inference time with sequential (self-boosting) or parallel (test-time augmentation) variants
 * **Experiment tracking** — built-in CSV and [Weights & Biases](https://wandb.ai) logging with gradient/weight monitoring
 
 ## 💻 Installation
@@ -271,7 +271,7 @@ SBND ships with four syndrome-based neural decoder architectures:
 | --- | --- | --- | --- |
 | StackedGRU | `sbnd.gru.StackedGRU` | [`gru.py`](https://github.com/lebidan/sbnd/blob/main/src/gru.py) | [Bennatan et al., 2018](https://arxiv.org/abs/1802.04741) |
 | ECCT | `sbnd.ecct.ECCT` | [`ecct.py`](https://github.com/lebidan/sbnd/blob/main/src/ecct.py) | [Choukroun & Wolf, 2022](https://arxiv.org/abs/2206.14881) |
-| CrossMPT | `sbnd.crossmpt.CrossMPT` | [`crossmpt.py`](https://github.com/lebidan/sbnd/blob/main/src/crossmpt.py) | [Park et al., 2025](https://arxiv.org/abs/2507.01038) |
+| CrossMPT | `sbnd.crossmpt.CrossMPT` | [`crossmpt.py`](https://github.com/lebidan/sbnd/blob/main/src/crossmpt.py) | [Park et al., 2025](https://openreview.net/pdf?id=gFvRRCnQvX) |
 | rECCT | `sbnd.recct.RECCT` | [`recct.py`](https://github.com/lebidan/sbnd/blob/main/src/recct.py) | [de Boni Rovella, 2024](https://theses.fr/2024ESAE0065) |
 
 <details><summary>GRU decoder</summary>
@@ -294,7 +294,7 @@ An almost verbatim port of the official CrossMPT implementation published in the
 
 <details><summary>rECCT decoder</summary>
 
-The rECCT decoder is a recurrent implementation of ECCT which can reach comparable performance with fewer parameters (up to 10x less in certain cases). It was inspired by the [PhD work](https://theses.fr/2024ESAE0065) of Gaston de Boni Rovella. There has been renewed interest recently in recurrent transformers as a parameter-efficient architecture (see, e.g., the many papers on looped transformers that have flourished on arXiv since 2025).
+The rECCT decoder is a recurrent implementation of ECCT which can reach comparable performance with fewer parameters (up to 10x fewer parameters in certain cases). It was inspired by the [PhD work](https://theses.fr/2024ESAE0065) of Gaston de Boni Rovella. There has been renewed interest recently in recurrent transformers as a parameter-efficient architecture (see, e.g., the many papers on looped transformers that have flourished on arXiv since 2023).
 
 </details>
 
@@ -308,7 +308,7 @@ To implement your own decoder, inherit from `BaseDecoder` and use [`src/mocked.p
 
 SBND supports two decoding modes, selected via the shared `error_space` parameter on both the decoder and the datamodule:
 
-1. **Codeword-level decoding** (`error_space: "codeword"`, default) — the standard SBND setup. The decoder is trained to predict the full n-bit error pattern `e_cw = c - c_hat` where `c` is the transmitted codeword and `c_hat` is the decoder decision on `c`.. Evaluation reports the **WER on the decoded codeword** and the **BER on the decoded message**, with the codeword-to-message mapping inverted via `Ginv` when the code is non-systematic.
+1. **Codeword-level decoding** (`error_space: "codeword"`, default) — the standard SBND setup. The decoder is trained to predict the full n-bit error pattern `e_cw = c - c_hat` where `c` is the transmitted codeword and `c_hat` is the decoder decision on `c`. Evaluation reports the **WER on the decoded codeword** and the **BER on the decoded message**, with the codeword-to-message mapping inverted via `Ginv` when the code is non-systematic.
 
 2. **Message-level decoding** (`error_space: "message"`), which we abbreviate as **iSBND** (information-based SBND), proposed in [De Boni Rovella & Benammar, GLOBECOM 2023](https://arxiv.org/abs/2402.13948). The decoder directly estimates the k-bit error pattern on the information message, computed as `e_msg = Ginv · e_cw`. This mode is particularly well-suited to non-systematic codes, but can also bring a small WER gain on systematic codes: it is generally slightly easier for the model to learn the partial error pattern restricted to the first or last k bits of the codeword (the message part), than the full n-bit error pattern. For models trained in iSBND mode, evaluation reports both **WER and BER on the decoded message**.
 
@@ -355,10 +355,10 @@ This project is licensed under the [MIT License](https://github.com/lebidan/sbnd
 
 ## 🛠 Contributing
 
-Contributions are welcome — both **issues** and **pull requests**:
+Contributions are welcome:
 
 * Open an [issue](https://github.com/lebidan/sbnd/issues) to report a bug, ask a question, or suggest a feature.
-* Open a [pull request](https://github.com/lebidan/sbnd/pulls) to contribute directly: a new code, a new decoder architecture, or a better training config for one of the available codes and decoders (improved hyperparameters, sharper SNR mix, better data augmentation, etc.). See [docs/extending.md](docs/extending.md) for the decoder API and conventions.
+* Open a [pull request](https://github.com/lebidan/sbnd/pulls) to contribute directly: a new code, a new decoder architecture, or a better training config for one of the available codes and decoders (improved hyperparameters, proper SNR mix, alternative data augmentation technique, etc.). See [docs/extending.md](docs/extending.md) for the decoder API and conventions.
 
 Before submitting a PR, please format and type-check your changes:
 
@@ -368,7 +368,7 @@ black src/                           # auto-format
 mypy src/                            # type checking
 ```
 
-We're happy to review, discuss, and merge.
+We're happy to review and discuss.
 
 ## 🤝 Acknowledgments
 
@@ -379,7 +379,7 @@ The following decoder implementations are adapted from their original authors' c
 * **ECCT** — adapted from [yoniLc/ECCT](https://github.com/yoniLc/ECCT) (MIT License), by Y. Choukroun and L. Wolf
 * **CrossMPT** — adapted from [iil-postech/crossmpt](https://github.com/iil-postech/crossmpt), by S.-J. Park et al.
 
-You may want also to pay a visit to [Gaston de Boni Rovella's github repository](https://github.com/gastondeboni/Syndrome_Based_Neural_Decoding) for another SBND decoding implementation based on [Keras](https://keras.io/) and [TensorFlow](https://www.tensorflow.org/).
+You may also want to pay a visit to [Gaston de Boni Rovella's github repository](https://github.com/gastondeboni/Syndrome_Based_Neural_Decoding) for another SBND decoding implementation based on [Keras](https://keras.io/) and [TensorFlow](https://www.tensorflow.org/).
 
 This project has greatly benefited from the following open-source software:
 
