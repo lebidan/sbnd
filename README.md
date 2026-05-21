@@ -240,6 +240,16 @@ sbnd-test /path/to/my-model.ckpt eval=bch-31-21
 
 → Full reference, options table, and TTS configuration: see [docs/evaluation.md](docs/evaluation.md).
 
+### Train and evaluate with an agent
+
+SBND ships with a set of [agent skills](skills/) (Anthropic Agent Skills format, plain markdown) that let a coding assistant — Claude Code, Cursor, Codex CLI, … — drive training and evaluation through a short natural-language dialog. The agent picks the right `exp=` preset, applies overrides, resolves the resulting checkpoint, infers the matching `eval=` preset from the code, translates plain-English TTS/HDD requests into Hydra overrides, and reports the WER/BER sweep.
+
+For example, the following single prompt runs an end-to-end training + evaluation pass on the rECCT dev-test experiment with a couple of overrides:
+
+> Run the rECCT dev-test experiment for 8 epochs on 4 CPUs, and evaluate it.
+
+See [`AGENTS.md`](AGENTS.md) for the cross-agent entry point and [`skills/`](skills/) for the individual skill files (`sbnd-train`, `sbnd-eval`, `sbnd-new-exp`).
+
 
 ## 🔍 Supported Codes & Decoders
 
@@ -332,6 +342,7 @@ sbnd/
 │   ├── codes/                  # Code definition .mat files (G, H, n, k)
 │   └── perms/                  # Code automorphism .mat files (used by sbnd.transforms.GenericPerms)
 ├── docs/                       # Reference guides: training.md, evaluation.md, extending.md
+├── skills/                     # Agent skills (sbnd-train, sbnd-eval, sbnd-new-exp) — see AGENTS.md
 ├── media/                      # Logo, plots, etc.
 ├── src/                        # Python package (installed as `sbnd`)
 │   ├── codes.py                # LinearCode class
