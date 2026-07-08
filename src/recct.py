@@ -227,9 +227,6 @@ class RECCT(BaseDecoder):
         # initialize parameters
         self.apply(self._init_weights)
 
-        # call last (compiles the forward graph once all submodules/buffers exist)
-        self._maybe_compile()
-
     def register_mask(self, code: LinearCode) -> None:
 
         mask_size = code.n + code.m

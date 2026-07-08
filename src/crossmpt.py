@@ -162,9 +162,6 @@ class CrossMPT(BaseDecoder):
             if p.dim() > 1:
                 nn.init.xavier_uniform_(p)
 
-        # call last (compiles the forward graph once all submodules/buffers exist)
-        self._maybe_compile()
-
     def forward(self, ym: Tensor, s: Tensor) -> Tensor:
         VN = ym.unsqueeze(-1) * self.src_embed_VN.unsqueeze(0)
         CN = s.unsqueeze(-1) * self.src_embed_CN.unsqueeze(0)

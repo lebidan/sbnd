@@ -246,6 +246,8 @@ decoder:
   compile: true
 ```
 
+> **Note (when compilation happens).** With `compile: true` the decoder is **not** compiled in its constructor — the training runtime compiles it at the start of training (`SBNDLitModule.on_train_start`), deliberately *after* Lightning's `ModelSummary` has printed. Running the summary (which traces the model under `FlopCounterMode`) against an already-`torch.compile`d module makes that instrumented trace the first graph dynamo sees and poisons the compile cache, slowing *every* subsequent training step substantially. Deferring compilation avoids this while keeping the full startup summary (FLOPs and input/output sizes included). Practical consequence: the `Compiling model forward` log line appears after the summary table, and `sbnd-test` runs the model eagerly (compiled state doesn't survive checkpoint save/load, and the test path never re-triggers compilation).
+
 To implement a new decoder architecture, see [Extending SBND](extending.md).
 
 ## Trainer

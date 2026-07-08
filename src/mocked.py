@@ -25,9 +25,6 @@ class MockedDecoder(BaseDecoder):
         # here we just use a single linear layer for demonstration purposes
         self.fc = nn.Linear(code.n + code.m, self.output_sz)
 
-        # call last (compiles the forward graph once all submodules exist)
-        self._maybe_compile()
-
     def forward(self, ym: Tensor, s: Tensor) -> Tensor:
         """Forward pass template"""
         # replace with your code

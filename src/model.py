@@ -192,14 +192,16 @@ class SBNDLitModule(LightningModule):
         return {"optimizer": optimizer, "lr_scheduler": lr_scheduler_config}
 
     def on_before_optimizer_step(self, optimizer: torch.optim.Optimizer) -> None:
-        # monitor gradient norms to detect potential exploding gradients issues
+        # monitor gradient norms to detect potential exploding gradients issues.
+        # Kept as a GPU tensor (no .item()) to avoid a host sync every step; only
+        # materialized to Python floats once, in on_train_epoch_end.
         norms = [
             p.grad.detach().norm()
             for p in self.parameters()
             if p.requires_grad and p.grad is not None
         ]
         if norms:
-            self._grad_norm_acc.append(torch.stack(norms).norm().item())
+            self._grad_norm_acc.append(torch.stack(norms).norm())
 
         # monitor Adam effective steps to detect potential underflow issues,
         # but only every 50 steps to minimize overhead.
@@ -234,13 +236,23 @@ class SBNDLitModule(LightningModule):
                 "Both must be set to the same value in the experiment config."
             )
 
+    def on_train_start(self) -> None:
+        # Compile the decoder here, NOT in its __init__. This runs after Lightning's
+        # ModelSummary (on_fit_start), so the summary traces the still-eager model:
+        # its FlopCounterMode forward would otherwise become the first graph dynamo
+        # traces and poison the torch.compile cache, slowing every subsequent
+        # training step substantially. Idempotent, so resumed/continued fits (which
+        # restore an eager decoder from the checkpoint) get compiled here too.
+        if hasattr(self.decoder, "_maybe_compile"):
+            self.decoder._maybe_compile()  # type: ignore[operator]
+
     def on_train_epoch_start(self) -> None:
         # log learning rate at the start of each epoch (more convenient than LearningRateMonitor cb)
         cur_lr = self.optimizers().param_groups[0]["lr"]  # type: ignore[union-attr]
         self.log("train/lr", cur_lr, sync_dist=True)
         self.log("train/epoch", self.current_epoch, sync_dist=True)
         # reset monitoring accumulators at the start of each epoch
-        self._grad_norm_acc: list[float] = []
+        self._grad_norm_acc: list[Tensor] = []
         self._adam_step_max_acc: list[float] = []
 
     def on_train_epoch_end(self) -> None:
@@ -250,12 +262,12 @@ class SBNDLitModule(LightningModule):
         }
         metrics = {"cum_weight_norm": sum(layer_norms.values())}
 
-        # log gradient stats
+        # log gradient stats (single sync point for the whole epoch's worth of
+        # per-step grad norms, instead of one sync per step)
         if self._grad_norm_acc:
-            metrics["grad_norm_mean"] = sum(self._grad_norm_acc) / len(
-                self._grad_norm_acc
-            )
-            metrics["grad_norm_max"] = max(self._grad_norm_acc)
+            grad_norms = torch.stack(self._grad_norm_acc)
+            metrics["grad_norm_mean"] = grad_norms.mean().item()
+            metrics["grad_norm_max"] = grad_norms.max().item()
 
         # log Adam v min stats to monitor potential underflow issues
         if self._adam_step_max_acc:

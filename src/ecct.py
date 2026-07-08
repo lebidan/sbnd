@@ -155,9 +155,6 @@ class ECCT(BaseDecoder):
             if p.dim() > 1:
                 nn.init.xavier_uniform_(p)
 
-        # call last (compiles the forward graph once all submodules/buffers exist)
-        self._maybe_compile()
-
     def forward(self, ym: Tensor, s: Tensor) -> Tensor:
         x = torch.cat([ym, s], dim=1)
         emb = x.unsqueeze(-1)

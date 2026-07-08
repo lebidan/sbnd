@@ -31,7 +31,7 @@ A decoder consumes the channel-matched magnitude vector `ym` of shape `(B, n)` a
 | --- | --- | --- | --- |
 | `code` | `LinearCode` | — (required) | The code whose errors the decoder is trained to predict. Used to derive `code.n` (length), `code.m` (number of parity-check equations), and `code.k` (message length). |
 | `error_space` | `str` | `"codeword"` | `"codeword"` → output shape `(B, n)`, predicting the full n-bit error pattern `e_cw = ĉ ⊕ c`. `"message"` → output shape `(B, k)`, predicting the k-bit error pattern `e_msg = (G⁻¹·e_cw) mod 2` directly in the message space. The value MUST match the datamodule's `error_space`; a mismatch is caught at `trainer.fit` start. |
-| `compile` | `bool` | `False` | If `True`, `self.compile()` is invoked by `_maybe_compile()` once the module is fully constructed, producing a traced graph for faster training. |
+| `compile` | `bool` | `False` | If `True`, the training runtime compiles the decoder (via `_maybe_compile()`) at the start of training — **not** in `__init__`; see the note under [Conventions](#conventions). |
 
 **Attributes set by the base class** (do not override):
 
@@ -52,7 +52,7 @@ The output is interpreted as logits in bipolar convention: a negative value at p
 
 ### Conventions
 
-* **Call `self._maybe_compile()` LAST** in `__init__`, after every parameter, buffer, and submodule has been registered. `_maybe_compile()` is a no-op when `compile=False`; when `compile=True`, it captures the traced graph of the fully-constructed module. Calling it earlier traces an incomplete graph.
+* **Do NOT call `self._maybe_compile()` in `__init__`.** Compilation is deferred and triggered by the training runtime (`SBNDLitModule.on_train_start`), deliberately *after* Lightning's `ModelSummary` has run — the summary traces the model under `FlopCounterMode`, and if that trace hits an already-`torch.compile`d module it becomes the first graph dynamo sees and poisons its cache, slowing every subsequent training step substantially. Your `__init__` just needs to pass `compile` up to `super().__init__()`; the base class stores it and the runtime does the rest. (A decoder used standalone, outside `SBNDLitModule`, therefore stays eager unless you call `_maybe_compile()` yourself.)
 * **Size your output projection from `self.output_sz`**, not from `code.n` or `code.k` directly. This is what allows the same decoder class to be used in both codeword-level and message-level (iSBND) modes — see [Decoding modes](../README.md#decoding-modes).
 * **Do not mutate `code`.** It is a shared object; treat it as read-only.
 
@@ -74,9 +74,8 @@ class MockedDecoder(BaseDecoder):
         # --- replace this block with your architecture ---
         self.fc = nn.Linear(code.n + code.m, self.output_sz)
         # -------------------------------------------------
-
-        # call last (compiles the forward graph once all submodules exist)
-        self._maybe_compile()
+        # (no _maybe_compile() call here — the training runtime compiles the
+        #  decoder after the model summary; see Conventions above)
 
     def forward(self, ym: Tensor, s: Tensor) -> Tensor:
         # --- replace this block with your architecture ---
