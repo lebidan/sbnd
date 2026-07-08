@@ -284,9 +284,23 @@ def main(cfg: DictConfig) -> None:
     # report some info about the training process
     log.info(f"LLR scaling factor after fit: {lm.llr_scaling.detach().item():.4f}")
 
-    # evaluate the best model on the test set(s)
-    # (note that this will issue a warning in a multi-gpu setting)
-    trainer.test(model=lm, datamodule=dm)
+    # Evaluate the BEST checkpoint (highest val/acc) on the test set(s), not the
+    # final-epoch weights. Lightning only reloads the best checkpoint when no
+    # `model` is passed and `ckpt_path="best"`; passing `model=lm` would silently
+    # keep the current (final) weights (Lightning `_parse_ckpt_path`). val/acc can
+    # peak well before the last epoch, so the distinction matters. Fall back to the
+    # in-memory model if no best checkpoint was saved (e.g. checkpointing disabled).
+    ckpt_cb = trainer.checkpoint_callback
+    best_ckpt = getattr(ckpt_cb, "best_model_path", "") if ckpt_cb else ""
+    if best_ckpt:
+        log.info(f"Evaluating best checkpoint on the test set(s): {best_ckpt}")
+        # weights_only=False: our own checkpoint embeds functools.partial objects
+        # (the Hydra `_partial_` optimizer/scheduler in hparams), which torch's
+        # default weights_only unpickler rejects. Same as the resume fit path.
+        trainer.test(ckpt_path="best", datamodule=dm, weights_only=False)
+    else:
+        log.warning("No best checkpoint found; testing final-epoch weights instead")
+        trainer.test(model=lm, datamodule=dm)
 
 
 if __name__ == "__main__":
