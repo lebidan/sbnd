@@ -36,10 +36,20 @@ class BaseDecoder(nn.Module, ABC):
         `trainer.fit` start by `SBNDLitModule.on_fit_start`. The value is
         stored on `self` so it survives checkpoint save/reload.
     compile : bool, default False
-        If True, `self.compile()` is invoked by `_maybe_compile()`. Subclasses
-        MUST call `_maybe_compile()` at the end of their `__init__` — after
-        every parameter, buffer, and submodule has been registered — so that
-        the traced graph sees the fully-constructed module.
+        If True, `self.compile()` is invoked by `_maybe_compile()`. Note that
+        `_maybe_compile()` is NOT called from `__init__`: compilation is deferred
+        and triggered by the training runtime (`SBNDLitModule.on_train_start`),
+        deliberately AFTER Lightning's `ModelSummary` has run. The summary runs a
+        forward under `FlopCounterMode`, and if that dispatch-mode trace hits an
+        already-`torch.compile`d module it becomes the first graph dynamo traces
+        and poisons its cache, making every subsequent training step substantially
+        slower (observed as tens of percent). Compiling after the summary avoids
+        this while keeping the full summary table (FLOPs and input/output sizes
+        included). Consequences: a decoder
+        used standalone (outside `SBNDLitModule`) stays eager until something
+        calls `_maybe_compile()`; the test path (`sbnd-test`) runs eager, which
+        is already the case since the compiled state does not survive checkpoint
+        save/reload.
 
     Attributes set by the base class (do not override)
     --------------------------------------------------
@@ -66,13 +76,27 @@ class BaseDecoder(nn.Module, ABC):
         self.error_space = error_space
         self.output_sz = code.k if error_space == "message" else code.n
         self._compile = compile
+        self._compiled_done = False
         self.example_input_array = (torch.zeros(1, code.n), torch.zeros(1, code.m))
 
     def _maybe_compile(self) -> None:
-        """Subclasses must call this LAST in their __init__ (after all params/buffers are registered)."""
-        if self._compile:
+        """Compile the decoder's forward, once, if `compile=True`.
+
+        Idempotent: safe to call multiple times (repeated fits, DDP ranks). This
+        is intentionally NOT called from `__init__` — the training runtime calls
+        it after the model summary has run; see the `compile` argument docstring
+        for the (measured) reason.
+        """
+        # getattr guards: a decoder unpickled from a checkpoint written before these
+        # attributes existed (e.g. resuming/continuing an older run) won't have them
+        # in its restored __dict__. Defaults reproduce the pre-existing behavior
+        # (no compile / not yet compiled).
+        if getattr(self, "_compile", False) and not getattr(
+            self, "_compiled_done", False
+        ):
             log.info("Compiling model forward for faster training")
             self.compile()
+            self._compiled_done = True
 
     @abstractmethod
     def forward(self, ym: Tensor, s: Tensor) -> Tensor: ...

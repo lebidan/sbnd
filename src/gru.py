@@ -49,9 +49,6 @@ class StackedGRU(BaseDecoder):
         # manually init weights, as pytorch's default was found to give weird results
         self.apply(self._init_weights)
 
-        # call last (compiles the forward graph once all submodules exist)
-        self._maybe_compile()
-
     # manually initialize weights for faster convergence (default init was found to give weird results)
     def _init_weights(self, m: nn.Module) -> None:
         if isinstance(m, nn.Linear):
