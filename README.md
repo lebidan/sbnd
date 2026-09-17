@@ -34,9 +34,7 @@ Syndrome-Based Neural Decoding
 
 Syndrome-based neural decoding is a promising approach for soft-decision decoding of short, high-rate codes, but the field is still wide open. Performance often lags behind classical decoders like OSD or Chase-2, scaling laws are poorly understood, and more parameter-efficient architectures are yet to be found.
 
-`SBND` is built for researchers who want to close that gap. It ships with multiple architectures, reproducible baselines facilitating benchmarking, a flexible data pipeline, and a clean training infrastructure — everything you need to run experiments, test new ideas, and push neural decoders further.
-
-You are what you eat — so is your model. SBND gives you full control over what goes on your model's plate: data sources, SNR mix, augmentation, and loss weighting. Feed it well 🍽️
+`SBND` is built for researchers who want to close that gap. It ships with multiple architectures, reproducible baselines facilitating benchmarking, a flexible data pipeline, and a clean training infrastructure — everything you need to run experiments, test new ideas and models, and push neural decoders further.
 
 <b> ⭐ Performance highlights ⭐</b>
 
