@@ -129,11 +129,12 @@ class DecoupledEmbedding(nn.Module):
         m: int,
         embed_dim: int,
         feat: str = "raw_log",
+        syn: str = "symbols",
         hidden: int | None = None,
         bias: bool = False,
     ) -> None:
         super().__init__()
-        self.n, self.feat = n, feat
+        self.n, self.feat, self.syn_mode = n, feat, syn
         hidden = hidden if hidden is not None else embed_dim
         self.pos = nn.Embedding(n + m, embed_dim)
         self.rel = nn.Sequential(
@@ -141,13 +142,26 @@ class DecoupledEmbedding(nn.Module):
             nn.GELU(),
             nn.Linear(hidden, embed_dim, bias=bias),
         )
-        self.syn = nn.Embedding(2, embed_dim)  # syndrome bit 0 / 1
+        # "symbols": one shared 2-entry table, so the displacement between a
+        # satisfied and a violated check is the same vector for every check.
+        # "affine": a per-check direction v_j as in AffineEmbedding, which keeps
+        # the m extra degrees of freedom on the syndrome side. Use "affine" to
+        # change only the reliability path relative to A1.
+        if syn == "symbols":
+            self.syn = nn.Embedding(2, embed_dim)
+        elif syn == "affine":
+            self.syn = nn.Embedding(m, embed_dim)
+        else:
+            raise ValueError(f"syn must be 'symbols' or 'affine', got {syn!r}")
 
     def forward(self, ym: Tensor, s: Tensor) -> Tensor:
         # s is bipolar: +1 -> syndrome bit 0, -1 -> syndrome bit 1
         pos = self.pos.weight.unsqueeze(0)
         xb = pos[:, : self.n] + self.rel(reliability_features(ym, self.feat))
-        xs = pos[:, self.n :] + self.syn((s < 0).long())
+        if self.syn_mode == "affine":
+            xs = pos[:, self.n :] + self.syn.weight.unsqueeze(0) * s.unsqueeze(-1)
+        else:
+            xs = pos[:, self.n :] + self.syn((s < 0).long())
         return torch.cat([xb, xs], dim=1)
 
 
@@ -263,6 +277,7 @@ class RECCT(BaseDecoder):
         error_space: str = "codeword",
         embedding: str = "mult",
         embed_feat: str = "raw_log",
+        embed_syn: str = "symbols",
     ) -> None:
         super().__init__(code, error_space=error_space, compile=compile)
 
@@ -296,8 +311,9 @@ class RECCT(BaseDecoder):
             self.embed = AffineEmbedding(code.n + code.m, embed_dim)
         elif embedding == "decoupled":
             log.info(f"Reliability features = {embed_feat}")
+            log.info(f"Syndrome embedding = {embed_syn}")
             self.embed = DecoupledEmbedding(
-                code.n, code.m, embed_dim, feat=embed_feat, bias=bias
+                code.n, code.m, embed_dim, feat=embed_feat, syn=embed_syn, bias=bias
             )
         else:
             raise ValueError(
@@ -400,8 +416,14 @@ if __name__ == "__main__":
     # default eps=1e-5 is ~10% of it and the multiplicative embedding does leak
     # a little reliability through that term alone.
     norm = nn.LayerNorm(64, elementwise_affine=False, eps=0.0)
-    for name in ("mult", "affine", "decoupled"):
-        dec = RECCT(code, embed_dim=64, n_heads=8, embedding=name).eval()
+    variants = {
+        "mult": {},
+        "affine": {"embedding": "affine"},
+        "decoupled": {"embedding": "decoupled"},
+        "decoupled+affsyn": {"embedding": "decoupled", "embed_syn": "affine"},
+    }
+    for name, kw in variants.items():
+        dec = RECCT(code, embed_dim=64, n_heads=8, **kw).eval()
         with torch.no_grad():
             assert dec(ym, s).shape == (B, code.n), name
             # The pre-norm encoder only ever sees LayerNorm(x). Under the
@@ -412,6 +434,10 @@ if __name__ == "__main__":
                 x1[:, : code.n], x2[:, : code.n], atol=1e-5
             )
         assert bits_differ == (name != "mult"), f"{name}: scale sensitivity is wrong"
+        # syndrome tokens must stay two-valued whatever the mode
+        with torch.no_grad():
+            xs = dec.embed(ym, s)[:, code.n :]
+        assert len(torch.unique(xs[:, 0].round(decimals=4), dim=0)) <= 2, name
         torch.compile(dec.embed, fullgraph=True)(ym, s)  # no graph break allowed
         print(f"{name:10s} {sum(p.numel() for p in dec.parameters()):>8d} params")
     print("ok")
