@@ -24,6 +24,12 @@ class WandbModifyCheckpointName(Callback):
             if isinstance(logger, WandbLogger):
                 run_name = logger.experiment.name  # triggers W&B init if not yet done
                 break
+        # Under DDP, `WandbLogger.experiment` is a real wandb.Run on rank 0 only;
+        # other ranks get a `_DummyExperiment` whose every attribute is a no-op
+        # method, so `.name` there is a bound method, not a string. Interpolating
+        # it would give each rank a different (and unopenable) filename, which
+        # breaks the post-fit `trainer.test(ckpt_path="best")` on every rank but 0.
+        run_name = trainer.strategy.broadcast(run_name, src=0)
         if run_name is None:
             return
         # append it to the checkpoint filename
