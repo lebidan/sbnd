@@ -1,7 +1,7 @@
 # Track A (input embedding) — running notes
 
 Branch: `exp/track-a-embedding`. Plan: `exp/recct_experiment_plan.md`.
-Last updated: 2026-09-17.
+Last updated: 2026-09-18.
 
 ## What is being tested
 
@@ -64,24 +64,50 @@ monotonic in SNR, which capacity alone does not predict.
 
 Figure: `exp/fer-ebch-32-16-trackA.png`.
 
-## Phase 2 — LDPC RPTU (96,48,10), TODO
+## Phase 2 — LDPC RPTU (96,48,10), DONE
 
-Question: does A1's advantage over A0 grow on a longer, harder code? This code
-has sparse H (6.4% density vs eBCH's 30%), 144 tokens vs 48, and rECCT barely
-matches BP-100 on it, so any real gain matters.
+`recct-ldpc-rptu-96-48-on-demand-3dB` + variants, `max_epochs=64`,
+`warmup 10 / decay 16` (a COMPLETE compressed WSD schedule, so NOT comparable to
+the 512-epoch reference `zany-star-1923`), ~2h50/run. Eval 1.0-5.0 dB step 1.0,
+33.55M cw/point.
 
-Base config `recct-ldpc-rptu-96-48-on-demand-3dB` (on-demand data at 3 dB, no
-augmentation, `embed_dim=192 n_heads=8 n_iters=10`, lr 1e-4), with:
+| id  | W&B run             | val/loss | val/acc | FER @3 dB | @4 dB    | @5 dB    |
+|-----|---------------------|----------|---------|-----------|----------|----------|
+| A0  | generous-glitter-2107 | 0.0108 | 0.946   | 5.357e-2  | 3.842e-3 | 8.026e-5 |
+| A1  | lively-resonance-2111 | 0.0103 | 0.949   | 5.127e-2  | 3.528e-3 | 6.837e-5 |
+| A2r | swept-paper-2112      | 0.0104 | 0.949   | 5.074e-2  | 3.492e-3 | 6.896e-5 |
 
-- `max_epochs=64` (full 512 is 1d6h on 4 GPUs; 64 epochs is ~3.7 h/run)
-- `lr_scheduler.warmup=10 lr_scheduler.decay=16`
+FER relative to A0: A1 0.989 / 0.976 / 0.957 / 0.918 / 0.852 and A2r 0.985 /
+0.969 / 0.947 / 0.909 / 0.859 at 1/2/3/4/5 dB. Both additive variants beat the
+baseline at every SNR, with the margin growing monotonically in Eb/N0 — the same
+shape as phase 1 but about twice the size (15% at 5 dB vs 7% at 6 dB on eBCH).
+In dB this is still only ~0.04 dB at 5 dB, where the curve falls 1.68 decades/dB.
 
-Note this is a COMPLETE compressed WSD schedule (LR annealed by epoch 64), not
-the first 64 epochs of the 512-epoch schedule. These numbers are therefore NOT
-comparable to the stored 512-epoch reference `zany-star-1923`.
+Unlike phase 1, A2r is NOT worse than A0 here: A1 and A2r are within each other's
+noise at every point. Whatever the per-check syndrome direction `v_j` was buying
+on the dense eBCH parity check matrix (30% density) does not matter on this
+sparse one (6.4%).
 
-Variants: A0, A1, A2r (skip A2a). Sequential, one at a time.
-Eval: 1.0–5.0 dB step 1.0, `batch_size=8192 num_batches=4096` (33.55M cw/point).
+Caveat unchanged and now dominant: one seed per variant. The Poisson counting
+error on the ratio is +-2.8% at 5 dB, but seed-to-seed training variance is not
+measured and is almost certainly larger than the 5-15% effect being claimed.
+
+Figure: `exp/fer-ldpc-rptu-96-48-trackA.png`.
+
+## Infrastructure note (2026-09-18)
+
+The `/Codes` NFS export degraded badly for several hours (reading one venv `.so`
+took 2m47s vs 0.3s on local disk). Three A1 attempts died identically: all four
+DDP ranks stuck in state D on `rpc_wait_bit_killable`, rank 0 needing ~40 min just
+to create its Hydra run dir, workers missing Lightning's 1801 s rendezvous timeout
+-> `DistStoreError: ... 1/4 clients joined`. Nothing wrong with the repo. If it
+recurs: check `timeout 25 cat .venv/.../libtorch_cuda.so` before relaunching, and
+keep run logs on local disk (4 ranks writing tqdm output to one NFS file is 20 MB
+of carriage returns per run).
+
+Also worth knowing: `sbnd-test` is single-GPU (`src/test.py` hardcodes `cuda`), so
+evals of different checkpoints should be run concurrently with `CUDA_VISIBLE_DEVICES`
+rather than sequentially — 4 h each, and they do not slow each other down.
 
 ## Known repo gotchas hit along the way
 
