@@ -1,7 +1,7 @@
 # Track A (input embedding) — running notes
 
 Branch: `exp/track-a-embedding`. Plan: `exp/recct_experiment_plan.md`.
-Last updated: 2026-09-18.
+Last updated: 2026-09-19.
 
 ## What is being tested
 
@@ -108,6 +108,34 @@ of carriage returns per run).
 Also worth knowing: `sbnd-test` is single-GPU (`src/test.py` hardcodes `cuda`), so
 evals of different checkpoints should be run concurrently with `CUDA_VISIBLE_DEVICES`
 rather than sequentially — 4 h each, and they do not slow each other down.
+
+## Phase 3 — BCH(63,45,7), DONE
+
+`recct-bch-63-45-ml-4m-2dB-aug` (4M ML @ 2 dB + BCHPerms aug) with `max_epochs=128`
+only; the config's own `warmup 10 / decay 32` kept, so again a complete compressed
+WSD schedule. ~2h47/run. Eval 1.0-6.0 dB step 1.0, 33.55M cw/point.
+
+| id | W&B run           | val/loss | val/acc | FER @4 dB | @5 dB    | @6 dB    |
+|----|-------------------|----------|---------|-----------|----------|----------|
+| A0 | golden-valley-2113 | 0.0648  | 0.686   | 1.772e-2  | 1.269e-3 | 3.380e-5 |
+| A1 | decent-planet-2114 | 0.0649  | 0.687   | 1.605e-2  | 1.036e-3 | 2.235e-5 |
+
+FER ratio A1/A0: 1.003 / 0.996 / 0.967 / 0.906 / 0.817 / 0.661 at 1-6 dB
+(+-1 sigma 0.000 / 0.000 / 0.001 / 0.002 / 0.007 / 0.047 from counting alone).
+The curve falls 1.57 decades/dB there, so 0.661 is ~0.11 dB.
+
+The high-SNR margin grows with code length across the three phases: 7% at 6 dB
+on eBCH(32,16), 15% at 5 dB on LDPC(96,48), 34% at 6 dB on BCH(63,45). A1 is
+level with or very slightly worse than A0 at 1-2 dB, i.e. near the 2 dB training
+point, and pulls ahead only away from it.
+
+Note the validation metrics do NOT show this: val/loss and val/acc are identical
+to three digits (0.0649 vs 0.0648, 0.687 vs 0.686) and A1's final train/loss is
+slightly WORSE (0.0692 vs 0.0678). Validation is measured at the 2 dB training
+SNR, where the FER curves also coincide. Judging these variants on val metrics
+would have missed the effect entirely.
+
+Figure: `exp/fer-bch-63-45-trackA.png`.
 
 ## Known repo gotchas hit along the way
 
