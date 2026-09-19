@@ -62,6 +62,16 @@ class FeedForwardNetwork(nn.Module):
 
 
 class EmbeddingLayer(nn.Module):
+    """Multiplicative embedding, the original ECCT form: e_i = p_i * x_i.
+    
+    Important to note that this multiplicative form above is invisible to the 
+    first attention sub-layer: the encoder is pre-norm and LayerNorm(c * p_i) 
+    does not depend on c > 0, so only position and syndrome sign survive there.
+    But the residual stream still carries p_i *x_i at full  magnitude throughout 
+    and the final DecoderLayer sees it. What the multiplicative form degrades is
+    specifically reliability's influence on the first attention's Q/K/V. 
+    """
+
     def __init__(self, vocab_size: int, embed_dim: int) -> None:
         super().__init__()
         self.embed = nn.Embedding(vocab_size, embed_dim)
@@ -72,35 +82,11 @@ class EmbeddingLayer(nn.Module):
         return self.embed.weight.unsqueeze(0) * x.unsqueeze(-1)
 
 
-N_RELIABILITY_FEATURES = {"raw": 1, "raw_log": 2, "fourier": 17}
-
-
-def reliability_features(ym: Tensor, kind: str) -> Tensor:
-    """Scalar features of the bit reliabilities, shape [B, n] -> [B, n, F].
-
-    `ym` is |y| normalized to [0, 1] per received word by `sbnd.data.prepare_data`,
-    which is why the Fourier frequencies below sit in [1, 16]: higher ones alias
-    within the unit interval.
-    """
-    if kind == "raw":
-        return ym.unsqueeze(-1)
-    if kind == "raw_log":
-        return torch.stack([ym, torch.log1p(ym)], dim=-1)
-    if kind == "fourier":
-        w = torch.logspace(0, 4, steps=8, base=2, device=ym.device, dtype=ym.dtype)
-        arg = ym.unsqueeze(-1) * w
-        return torch.cat([ym.unsqueeze(-1), arg.sin(), arg.cos()], dim=-1)
-    raise ValueError(f"unknown reliability feature kind: {kind!r}")
-
-
 class AffineEmbedding(nn.Module):
-    """Additive embedding with two tables (track A1): x_i = p_i + v_i * value_i.
+    """Affine embedding decoupling position and value: e_i = p_i + v_i * x_i.
 
-    The multiplicative form of `EmbeddingLayer` is invisible to the first
-    attention sub-layer: the encoder is pre-norm and LayerNorm(c * e_i) does not
-    depend on c > 0, so only position and syndrome sign survive. Adding the
-    position term instead keeps the reliability amplitude in the normalized
-    input. Syndrome tokens become a proper two-symbol embedding p_j +- v_j.
+    Adding the position term makes reliability information survive LN, at the 
+    cost of using two embedding tables instead of one.
     """
 
     def __init__(self, vocab_size: int, embed_dim: int) -> None:
@@ -112,57 +98,6 @@ class AffineEmbedding(nn.Module):
         x = torch.cat([ym, s], dim=1)
         pos, val = self.pos.weight.unsqueeze(0), self.val.weight.unsqueeze(0)
         return pos + val * x.unsqueeze(-1)
-
-
-class DecoupledEmbedding(nn.Module):
-    """Additive embedding with decoupled content (track A2): x_i = p_i + content_i.
-
-    Position is a per-token table (legitimate: the code is fixed). Bit content
-    comes from an MLP on scalar reliability features, shared across positions.
-    Syndrome content is a two-symbol table indexed by the binary syndrome bit,
-    so a check's identity lives in `pos` and its value in `syn`.
-    """
-
-    def __init__(
-        self,
-        n: int,
-        m: int,
-        embed_dim: int,
-        feat: str = "raw_log",
-        syn: str = "symbols",
-        hidden: int | None = None,
-        bias: bool = False,
-    ) -> None:
-        super().__init__()
-        self.n, self.feat, self.syn_mode = n, feat, syn
-        hidden = hidden if hidden is not None else embed_dim
-        self.pos = nn.Embedding(n + m, embed_dim)
-        self.rel = nn.Sequential(
-            nn.Linear(N_RELIABILITY_FEATURES[feat], hidden, bias=bias),
-            nn.GELU(),
-            nn.Linear(hidden, embed_dim, bias=bias),
-        )
-        # "symbols": one shared 2-entry table, so the displacement between a
-        # satisfied and a violated check is the same vector for every check.
-        # "affine": a per-check direction v_j as in AffineEmbedding, which keeps
-        # the m extra degrees of freedom on the syndrome side. Use "affine" to
-        # change only the reliability path relative to A1.
-        if syn == "symbols":
-            self.syn = nn.Embedding(2, embed_dim)
-        elif syn == "affine":
-            self.syn = nn.Embedding(m, embed_dim)
-        else:
-            raise ValueError(f"syn must be 'symbols' or 'affine', got {syn!r}")
-
-    def forward(self, ym: Tensor, s: Tensor) -> Tensor:
-        # s is bipolar: +1 -> syndrome bit 0, -1 -> syndrome bit 1
-        pos = self.pos.weight.unsqueeze(0)
-        xb = pos[:, : self.n] + self.rel(reliability_features(ym, self.feat))
-        if self.syn_mode == "affine":
-            xs = pos[:, self.n :] + self.syn.weight.unsqueeze(0) * s.unsqueeze(-1)
-        else:
-            xs = pos[:, self.n :] + self.syn((s < 0).long())
-        return torch.cat([xb, xs], dim=1)
 
 
 class MultiHeadSelfAttention(nn.Module):
@@ -276,8 +211,6 @@ class RECCT(BaseDecoder):
         compile: bool = False,
         error_space: str = "codeword",
         embedding: str = "mult",
-        embed_feat: str = "raw_log",
-        embed_syn: str = "symbols",
     ) -> None:
         super().__init__(code, error_space=error_space, compile=compile)
 
@@ -302,23 +235,15 @@ class RECCT(BaseDecoder):
         self.register_mask(code)
 
         # build the different layers of the rECCT decoder
-        # `mult` is the original ECCT embedding and the default: existing configs
-        # and checkpoints are unaffected. `affine` / `decoupled` are tracks A1 / A2.
+        # `mult` is the original ECCT embedding and stays the default, so existing
+        # configs and checkpoints are unaffected; `affine` is the additive variant.
         self.embed: nn.Module
         if embedding == "mult":
             self.embed = EmbeddingLayer(code.n + code.m, embed_dim)
         elif embedding == "affine":
             self.embed = AffineEmbedding(code.n + code.m, embed_dim)
-        elif embedding == "decoupled":
-            log.info(f"Reliability features = {embed_feat}")
-            log.info(f"Syndrome embedding = {embed_syn}")
-            self.embed = DecoupledEmbedding(
-                code.n, code.m, embed_dim, feat=embed_feat, syn=embed_syn, bias=bias
-            )
         else:
-            raise ValueError(
-                f"embedding must be 'mult', 'affine' or 'decoupled', got {embedding!r}"
-            )
+            raise ValueError(f"embedding must be 'mult' or 'affine', got {embedding!r}")
         self.encoding_layers = nn.ModuleList(
             [
                 EncoderLayer(
@@ -398,46 +323,4 @@ class RECCT(BaseDecoder):
 
 
 if __name__ == "__main__":
-    # Self-check for the input embeddings (tracks A1 / A2). Run with:
-    #   .venv/bin/python -m sbnd.recct
-    from .codes import LinearCode
-
-    code = LinearCode("data/codes/ebch.32.16.mat")
-    B = 8
-    torch.manual_seed(0)
-    # |y| normalized to [0, 1], as prepare_data returns. Kept away from 0: the
-    # scale invariance checked below holds only up to LayerNorm's epsilon, which
-    # dominates once a token's whole vector is near zero.
-    ym = 0.1 + 0.9 * torch.rand(B, code.n)
-    s = 1.0 - 2.0 * torch.randint(0, 2, (B, code.m)).float()  # bipolar syndrome
-
-    # eps=0: the invariance below is exact only in the limit eps -> 0. With the
-    # 0.02 init of `_init_weights` a token vector's variance is ~1e-4, so the
-    # default eps=1e-5 is ~10% of it and the multiplicative embedding does leak
-    # a little reliability through that term alone.
-    norm = nn.LayerNorm(64, elementwise_affine=False, eps=0.0)
-    variants = {
-        "mult": {},
-        "affine": {"embedding": "affine"},
-        "decoupled": {"embedding": "decoupled"},
-        "decoupled+affsyn": {"embedding": "decoupled", "embed_syn": "affine"},
-    }
-    for name, kw in variants.items():
-        dec = RECCT(code, embed_dim=64, n_heads=8, **kw).eval()
-        with torch.no_grad():
-            assert dec(ym, s).shape == (B, code.n), name
-            # The pre-norm encoder only ever sees LayerNorm(x). Under the
-            # multiplicative embedding that is invariant to the reliability
-            # scale, which is the whole point of the additive variants.
-            x1, x2 = norm(dec.embed(ym, s)), norm(dec.embed(0.5 * ym, s))
-            bits_differ = not torch.allclose(
-                x1[:, : code.n], x2[:, : code.n], atol=1e-5
-            )
-        assert bits_differ == (name != "mult"), f"{name}: scale sensitivity is wrong"
-        # syndrome tokens must stay two-valued whatever the mode
-        with torch.no_grad():
-            xs = dec.embed(ym, s)[:, code.n :]
-        assert len(torch.unique(xs[:, 0].round(decimals=4), dim=0)) <= 2, name
-        torch.compile(dec.embed, fullgraph=True)(ym, s)  # no graph break allowed
-        print(f"{name:10s} {sum(p.numel() for p in dec.parameters()):>8d} params")
-    print("ok")
+    pass

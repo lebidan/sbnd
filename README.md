@@ -304,6 +304,8 @@ An almost verbatim port of the official CrossMPT implementation published in the
 
 The rECCT decoder is a recurrent implementation of ECCT which can reach comparable performance with fewer parameters (up to 10x fewer parameters in certain cases). It was inspired by the [PhD work](https://theses.fr/2024ESAE0065) of Gaston de Boni Rovella. There has been renewed interest recently in recurrent transformers as a parameter-efficient architecture (see, e.g., the many papers on looped transformers that have flourished on arXiv since 2023).
 
+_New (Sep. 19, 2026)_: added a new affine embedding option which decouples positional and value encoding and can slightly improve performance in some cases, at the cost of using two embedding tables instead of one. 
+
 </details>
 
 <br>
