@@ -124,10 +124,24 @@ FER ratio A1/A0: 1.003 / 0.996 / 0.967 / 0.906 / 0.817 / 0.661 at 1-6 dB
 (+-1 sigma 0.000 / 0.000 / 0.001 / 0.002 / 0.007 / 0.047 from counting alone).
 The curve falls 1.57 decades/dB there, so 0.661 is ~0.11 dB.
 
-The high-SNR margin grows with code length across the three phases: 7% at 6 dB
-on eBCH(32,16), 15% at 5 dB on LDPC(96,48), 34% at 6 dB on BCH(63,45). A1 is
-level with or very slightly worse than A0 at 1-2 dB, i.e. near the 2 dB training
-point, and pulls ahead only away from it.
+A1 is level with or very slightly worse than A0 at 1-2 dB, i.e. near the 2 dB
+training point, and pulls ahead only away from it. The same shape holds on all
+three codes, but the SIZE of the margin is not explained by anything simple.
+Compared at a common 5 dB:
+
+| code        | n  | m  | H density | row wt | col wt | A1/A0 @5 dB |
+|-------------|----|----|-----------|--------|--------|-------------|
+| eBCH(32,16) | 32 | 16 | 0.297     | 8-12   | 1-11   | 0.958       |
+| BCH(63,45)  | 63 | 18 | 0.325     | 16-28  | 1-11   | 0.817       |
+| LDPC(96,48) | 96 | 48 | 0.064     | 6-7    | 3-4    | 0.852       |
+
+Neither blocklength nor H density orders these: BCH(63,45) has the largest margin
+while being shorter than the LDPC code, and eBCH and BCH have nearly the same
+density and column-weight profile but the smallest and largest margins. Coset
+weight distribution is the more likely place to look. Note also that the three
+setups differ in training SNR (3 / 2 / 3 dB), data regime (ML file + augmentation
+vs on-demand) and schedule, so cross-code margins are confounded beyond the code
+itself. With one seed per point, three codes cannot decompose this.
 
 Note the validation metrics do NOT show this: val/loss and val/acc are identical
 to three digits (0.0649 vs 0.0648, 0.687 vs 0.686) and A1's final train/loss is
