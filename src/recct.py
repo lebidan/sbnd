@@ -62,6 +62,16 @@ class FeedForwardNetwork(nn.Module):
 
 
 class EmbeddingLayer(nn.Module):
+    """Multiplicative embedding, the original ECCT form: e_i = p_i * x_i.
+
+    Important to note that this multiplicative form above is invisible to the
+    first attention sub-layer: the encoder is pre-norm and LayerNorm(c * p_i)
+    does not depend on c > 0, so only position and syndrome sign survive there.
+    But the residual stream still carries p_i * x_i at full magnitude throughout
+    and the final DecoderLayer sees it. What the multiplicative form degrades is
+    specifically reliability's influence on the first attention's Q/K/V.
+    """
+
     def __init__(self, vocab_size: int, embed_dim: int) -> None:
         super().__init__()
         self.embed = nn.Embedding(vocab_size, embed_dim)
@@ -70,6 +80,24 @@ class EmbeddingLayer(nn.Module):
         # Original ECCT approach (assume one embedding vector per dim of x)
         x = torch.cat([ym, s], dim=1)
         return self.embed.weight.unsqueeze(0) * x.unsqueeze(-1)
+
+
+class AffineEmbedding(nn.Module):
+    """Affine embedding decoupling position and value: e_i = p_i + v_i * x_i.
+
+    Adding the position term makes reliability information survive LN, at the
+    cost of using two embedding tables instead of one.
+    """
+
+    def __init__(self, vocab_size: int, embed_dim: int) -> None:
+        super().__init__()
+        self.pos = nn.Embedding(vocab_size, embed_dim)  # token identity
+        self.val = nn.Embedding(vocab_size, embed_dim)  # content direction
+
+    def forward(self, ym: Tensor, s: Tensor) -> Tensor:
+        x = torch.cat([ym, s], dim=1)
+        pos, val = self.pos.weight.unsqueeze(0), self.val.weight.unsqueeze(0)
+        return pos + val * x.unsqueeze(-1)
 
 
 class MultiHeadSelfAttention(nn.Module):
@@ -182,6 +210,7 @@ class RECCT(BaseDecoder):
         bias: bool = False,
         compile: bool = False,
         error_space: str = "codeword",
+        embedding: str = "mult",
     ) -> None:
         super().__init__(code, error_space=error_space, compile=compile)
 
@@ -197,6 +226,7 @@ class RECCT(BaseDecoder):
                 "Fast CUDA fused kernels for SDPA require head dim to be a multiple of 8"
             )
         log.info(f"FFN expansion factor = {ffn_expand_factor:.1f}")
+        log.info(f"Input embedding = {embedding}")
 
         self.n_iters = n_iters
         self.n_layers = n_layers
@@ -205,7 +235,15 @@ class RECCT(BaseDecoder):
         self.register_mask(code)
 
         # build the different layers of the rECCT decoder
-        self.embed = EmbeddingLayer(code.n + code.m, embed_dim)
+        # `mult` is the original ECCT embedding and stays the default, so existing
+        # configs and checkpoints are unaffected; `affine` is the additive variant.
+        self.embed: nn.Module
+        if embedding == "mult":
+            self.embed = EmbeddingLayer(code.n + code.m, embed_dim)
+        elif embedding == "affine":
+            self.embed = AffineEmbedding(code.n + code.m, embed_dim)
+        else:
+            raise ValueError(f"embedding must be 'mult' or 'affine', got {embedding!r}")
         self.encoding_layers = nn.ModuleList(
             [
                 EncoderLayer(
