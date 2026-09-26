@@ -601,15 +601,15 @@ class SBNDDataModule(LightningDataModule):
         Both are avoided by calling
             `lightning.pytorch.seed_everything(seed, workers=True)`
         once before `Trainer.fit` / `Trainer.test`. The `workers=True` flag installs
-        a `worker_init_fn` that reseeds each worker with `base_seed + worker_id`,
-        and Lightning additionally offsets `base_seed` per DDP rank. If no seed is
-        configured at all, decorrelation is still preserved in practice because
-        each DDP rank is launched as a fresh subprocess (independent OS-entropy
-        seed) and PyTorch's default DataLoader assigns each worker a distinct
-        derived seed; only run-to-run reproducibility is lost.
-        The dangerous misuse to avoid is calling `seed_everything(seed)` *without*
-        `workers=True`: ranks are then offset but workers within a rank share an
-        identical RNG stream, producing correlated batches.
+        a `worker_init_fn` that reseeds each worker from `(seed, worker_id, rank)`.
+        Each rank's main process, however, gets the same seed on every rank, so
+        data generated there (`num_workers=0`) would be identical across GPUs:
+        at least one worker is therefore required. If no seed is configured,
+        decorrelation still holds (each DDP rank is a fresh subprocess with an
+        OS-entropy seed); only run-to-run reproducibility is lost.
+        The misuse to avoid is `seed_everything(seed)` *without* `workers=True`:
+        PyTorch's default worker seed (a main-process draw + worker_id) is then
+        the same on every rank, so ranks draw identical samples.
     """
 
     train_ds: Dataset
@@ -647,6 +647,12 @@ class SBNDDataModule(LightningDataModule):
 
         self.code = code
         log.info(f"Instantiating an SBNDDataModule for the {code} code")
+
+        # main-process RNG is not rank-specific (see caveats above)
+        if (extra_args or {}).get("num_workers", 0) < 1:
+            raise ValueError(
+                "At least one DataLoader worker is required (set cpus >= 1)"
+            )
 
         # mode dispatch:
         #   - train_file unset → on-demand

@@ -248,6 +248,8 @@ _conf_dir = os.path.join(os.getcwd(), "conf")
 def _main(cfg: DictConfig) -> None:
     # CPU work here is only per-batch stats; default threads spin at 700%+ while GPU-bound
     torch.set_num_threads(1)
+    if cfg.num_workers < 1:
+        raise ValueError(f"num_workers must be >= 1, got {cfg.num_workers}")
 
     # Load model first (code path is stored in its hparams)
     model_file = cfg.model
