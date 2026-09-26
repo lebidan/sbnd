@@ -74,6 +74,8 @@ The active TTS strategy, the precision and the HDD flag are reflected in the CSV
 
 **Precision and compilation.** Models trained with `precision: bf16-mixed` should be evaluated with `precision=bf16-mixed`: evals run much faster (about 2.5× on BCH(31,21) RECCT) with the same WER. The fp32 default (`32-true`) is always safe, and some models (e.g. GRU) need it. In both precisions, the decoder is `torch.compile`d when its checkpoint was trained with `compile: true`; the first batch then pays a few seconds of compile warm-up.
 
+**Zero-syndrome words.** Received words with a zero syndrome are not fed to the model (at high SNR they are most of the batch): their decoded word is the hard decision, left uncorrected. They are still counted in `Total CW`; those with a nonzero error pattern (undetectable errors, the error being a codeword) are counted as codeword errors, and their bit errors are the hard-decision ones.
+
 **CPU threads.** `sbnd-test` deliberately runs its main process single-threaded on the CPU (its CPU work is only per-batch error counting), so setting `OMP_NUM_THREADS` is not needed.
 
 ## 2. Hard-decision decoding emulation

@@ -218,10 +218,19 @@ def test_model(
                 ym, syndromes, targets, _ = batch  # per-sample loss weight unused
                 ym_dev = ym.to(device)
                 synd_dev = syndromes.to(device)
-                with torch.autocast(
-                    device.type, torch.bfloat16, enabled=precision == "bf16-mixed"
-                ):
-                    preds = tts.decode(model, code, ym_dev, synd_dev)  # type: ignore[attr-defined]
+                # Zero-syndrome words skip the model and stay uncorrected
+                # (update_error_stats counts undetectable errors as errors anyway)
+                nz = torch.any(synd_dev < 0, dim=1)
+                preds = torch.zeros(targets.shape, dtype=torch.int8, device=device)
+                if nz.any():
+                    ym_nz, synd_nz = ym_dev[nz], synd_dev[nz]
+                    # The batch size now varies: compile one dynamic-shape graph up front
+                    torch._dynamo.maybe_mark_dynamic(ym_nz, 0)
+                    torch._dynamo.maybe_mark_dynamic(synd_nz, 0)
+                    with torch.autocast(
+                        device.type, torch.bfloat16, enabled=precision == "bf16-mixed"
+                    ):
+                        preds[nz] = tts.decode(model, code, ym_nz, synd_nz)  # type: ignore[attr-defined]
                 update_error_stats(
                     code, error_space, preds.cpu(), targets, syndromes, delta, t
                 )
