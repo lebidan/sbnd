@@ -91,7 +91,7 @@ Output goes to:
 log/test/<ckpt-stem>[<tts-suffix>][-hdd].csv
 ```
 
-Where `<ckpt-stem>` is the ckpt filename without `.ckpt`, and the TTS suffix is `-sbN` (self-boosting, N iters) or `-ttaN` (TTA, N perms) or empty. The file is **append + dedup by SNR**, so re-running with different `num_batches` overwrites in place.
+Where `<ckpt-stem>` is the ckpt filename without `.ckpt`, and the TTS suffix is `-sbN` (self-boosting, N iters) or `-ttaN` (TTA, N perms) or empty. The file **accumulates by SNR**: re-running an SNR point, sequentially or concurrently (e.g. one process per GPU), adds its error counts to the existing row and WER/BER are recomputed from the totals.
 
 After the run completes, read the CSV and report a compact per-SNR table (snr_db, fer, ber, n_words). Flag any SNR where `n_word_errors < ~100` — the FER estimate is noisy there.
 

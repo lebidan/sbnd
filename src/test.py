@@ -1,12 +1,14 @@
 # Evaluate the test performance of a trained SBND model through Monte Carlo simulations.
 
-import os, sys, csv, pathlib
+import os, sys, csv, fcntl, pathlib
 import torch, hydra
 
 from hydra.utils import instantiate
 from torch import Tensor
 from torch.utils.data import DataLoader
 from omegaconf import DictConfig
+from contextlib import contextmanager
+from typing import Generator
 from tqdm import tqdm  # type: ignore[import-untyped]
 from tabulate import tabulate  # type: ignore[import-untyped]
 
@@ -33,6 +35,8 @@ def bipolar_to_bit(x: Tensor) -> Tensor:
 
 # column labels for the output csv file
 COLUMNS = ["Eb/N0", "WER", "BER", "CW errors", "Bit errors", "Total CW"]
+# raw counters accumulated across runs (WER/BER are derived from them)
+COUNTS = ("CW errors", "Bit errors", "Total CW")
 
 # Decimal precision used when keying rows by Eb/N0. Picked large enough to
 # distinguish the smallest SNR step we'd realistically use (0.01 dB), and
@@ -57,13 +61,46 @@ def write_csv(rows: list[dict[str, float]], path: str) -> None:
         writer.writerows(rows)
 
 
+@contextmanager
+def _csv_lock(path: str) -> Generator[None, None, None]:
+    # Lock a sidecar file, not the CSV: merge_into_csv replaces the CSV on each
+    # write, voiding any lock on it. flock may be node-local on cluster filesystems.
+    with open(path + ".lock", "w") as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        yield  # released when f is closed
+
+
+def merge_into_csv(
+    path: str, snr: float, delta: dict[str, float], k: int
+) -> dict[float, dict[str, float]]:
+    """Add this run's counts at `snr` to the counts already on disk; return all rows.
+
+    Re-reading under the lock lets concurrent sbnd-test runs writing the same
+    file (same or different SNR points) add up instead of overwriting each other.
+    """
+    with _csv_lock(path):
+        rows = {}
+        if pathlib.Path(path).exists():
+            rows = {_snr_key(r["Eb/N0"]): r for r in load_csv(path)}
+        row = rows.setdefault(snr, {c: 0.0 for c in COLUMNS})
+        row["Eb/N0"] = snr
+        for c in COUNTS:
+            row[c] += delta[c]
+        row["WER"] = row["CW errors"] / row["Total CW"]
+        row["BER"] = row["Bit errors"] / (row["Total CW"] * k)
+        tmp = path + ".tmp"  # safe to share: only written under the lock
+        write_csv([rows[s] for s in sorted(rows)], tmp)
+        os.replace(tmp, path)  # atomic: a crash mid-write never truncates the CSV
+    return rows
+
+
 def update_error_stats(
     code: LinearCode,
     error_space: str,
     preds: Tensor,
     targets: Tensor,
     syndromes: Tensor,
-    stats: dict[str, float | int],
+    stats: dict[str, float],
     t: int = 0,
 ) -> None:
     """
@@ -146,38 +183,18 @@ def test_model(
     model = model.to(device)
     model.eval()
     error_space = getattr(model.decoder, "error_space", "codeword")
-    # Load existing rows if the output file already exists, otherwise start fresh.
-    # Index by Eb/N0 so we can accumulate stats when re-running the same SNR point.
-    # Keys are rounded to SNR_KEY_DECIMALS to absorb fp drift between torch.arange
-    # accumulation and CSV float round-trips (matters for steps like 0.1 or 0.05).
-    stats_by_snr: dict[float, dict[str, float]] = {}
+    # Each run only counts its own samples; merge_into_csv adds them to what is
+    # on disk after each SNR point, so re-runs and concurrent runs accumulate.
     if pathlib.Path(output_file).exists():
-        for row in load_csv(output_file):
-            row["Eb/N0"] = _snr_key(row["Eb/N0"])
-            stats_by_snr[row["Eb/N0"]] = row
         log.info(
-            f"Appending to existing file: {output_file} ({len(stats_by_snr)} rows already present)"
+            f"Appending to existing file: {output_file} ({len(load_csv(output_file))} rows already present)"
         )
+    rows: dict[float, dict[str, float]] = {}
     # Setup and run MC simulation
     for ebno_dB in ebno_dB_range:
         snr = _snr_key(ebno_dB.item())
         print(f"Simulating Eb/N0 = {ebno_dB} dB")
-        # Seed counters from any existing row at this SNR so new samples
-        # accumulate on top instead of replacing it.
-        prev = stats_by_snr.get(snr)
-        error_stats: dict[str, float] = {
-            "Eb/N0": snr,
-            "WER": 0.0,
-            "BER": 0.0,
-            "CW errors": prev["CW errors"] if prev is not None else 0.0,
-            "Bit errors": prev["Bit errors"] if prev is not None else 0.0,
-            "Total CW": prev["Total CW"] if prev is not None else 0.0,
-        }
-        if prev is not None:
-            log.info(
-                f"Cumulating with existing stats at Eb/N0={snr} dB "
-                f"({int(prev['Total CW']):,} CW already simulated)"
-            )
+        delta = {c: 0.0 for c in COUNTS}
         ds = OnDemandDataset(
             code,
             ebno_dB=ebno_dB,
@@ -194,18 +211,14 @@ def test_model(
                 synd_dev = syndromes.to(device)
                 preds = tts.decode(model, code, ym_dev, synd_dev)  # type: ignore[attr-defined]
                 update_error_stats(
-                    code, error_space, preds.cpu(), targets, syndromes, error_stats, t
+                    code, error_space, preds.cpu(), targets, syndromes, delta, t
                 )
-        # recompute WER/BER from the cumulative totals
-        error_stats["WER"] = error_stats["CW errors"] * 1.0 / error_stats["Total CW"]
-        error_stats["BER"] = error_stats["Bit errors"] / (
-            error_stats["Total CW"] * code.k
-        )
-        stats_by_snr[snr] = error_stats
-        # print error stats and save to csv after each SNR point
-        print(error_stats)
-        write_csv(list(stats_by_snr.values()), output_file)
-    return list(stats_by_snr.values())
+        rows = merge_into_csv(output_file, snr, delta, code.k)
+        # print the cumulative stats at this SNR point
+        print(rows[snr])
+    if not rows and pathlib.Path(output_file).exists():
+        return load_csv(output_file)
+    return [rows[s] for s in sorted(rows)]
 
 
 # conf/ is not part of the installed package; it lives in the project root.

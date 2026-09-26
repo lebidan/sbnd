@@ -51,6 +51,8 @@ A few presets for the codes shipped with SBND are available in [`conf/eval/`](..
 
 Results are saved to a CSV file named after the checkpoint, under the output directory (default: [`./log/test/`](../log/test)). If the file already exists, new SNR points are appended; for SNR points that are already present, error counts are **accumulated** on top of the previous ones (and WER/BER are recomputed from the cumulative totals). This makes it possible to extend an evaluation incrementally across multiple runs and progressively tighten the statistics.
 
+Rows are written sorted by Eb/N0. Each run only adds its own counts to what is on disk, under an exclusive file lock, so several `sbnd-test` processes can write the same output file concurrently (e.g. one per GPU, on the same or different SNR points) and their counts add up. The lock is a `<csv>.lock` sidecar file created next to the CSV. **Caveat:** on cluster filesystems where `flock` is node-local (e.g. Lustre mounted with `localflock`), concurrent runs are only safe when they run on the same node.
+
 The active TTS strategy and the HDD flag are reflected in the CSV filename suffix, so that different configurations of the same checkpoint do not overwrite one another (e.g. `<model>.csv`, `<model>-hdd.csv`, `<model>-sb5.csv`, `<model>-tta4-hdd.csv`).
 
 ### Options
