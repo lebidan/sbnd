@@ -53,7 +53,7 @@ Results are saved to a CSV file named after the checkpoint, under the output dir
 
 Rows are written sorted by Eb/N0. Each run only adds its own counts to what is on disk, under an exclusive file lock, so several `sbnd-test` processes can write the same output file concurrently (e.g. one per GPU, on the same or different SNR points) and their counts add up. The lock is a `<csv>.lock` sidecar file created next to the CSV. **Caveat:** on cluster filesystems where `flock` is node-local (e.g. Lustre mounted with `localflock`), concurrent runs are only safe when they run on the same node.
 
-The active TTS strategy and the HDD flag are reflected in the CSV filename suffix, so that different configurations of the same checkpoint do not overwrite one another (e.g. `<model>.csv`, `<model>-hdd.csv`, `<model>-sb5.csv`, `<model>-tta4-hdd.csv`).
+The active TTS strategy, the precision and the HDD flag are reflected in the CSV filename suffix, in the order `<model>[<tts>][-bf16][-hdd].csv`, so that different configurations of the same checkpoint do not overwrite one another (e.g. `<model>.csv`, `<model>-hdd.csv`, `<model>-sb5.csv`, `<model>-bf16.csv`, `<model>-tta4-bf16-hdd.csv`).
 
 ### Options
 
@@ -65,11 +65,14 @@ The active TTS strategy and the HDD flag are reflected in the CSV filename suffi
 | `num_batches` | 1024 | Number of batches per SNR point (a maximum when `min_cw_errors > 0`) |
 | `min_cw_errors` | 500 | Stop an SNR point early once this run has seen this many codeword errors; `0` = always run `num_batches` — see below |
 | `num_workers` | 8 | Number of workers for dataloading |
+| `precision` | `32-true` | `32-true` (fp32) or `bf16-mixed` (bf16 autocast, adds `-bf16` to the CSV name) — see below |
 | `hdd` | `false` | Enable hard-decision decoding emulation — see §2 |
 | `tts` | `SingleShotDecoder` | Decoding strategy — see §3 |
 | `output_dir` | `./log/test` | Output directory for the results CSV |
 
 **Early stop on error count.** The accuracy of a Monte Carlo WER estimate depends on the number of errors observed (relative std ≈ 1/√errors), not on the number of words simulated: 500 errors give a 95% confidence interval of about ±9% on the WER, 1000 errors about ±6%. With `min_cw_errors=N`, each SNR point stops at the first batch where the run's codeword errors reach `N`, so low-SNR points finish quickly and `num_batches` only caps the high-SNR ones. The count covers the current run only (not what is already in the CSV): re-running a point always adds ≥ `N` new errors, and `k` concurrent runs on the same file yield ~`k × N` errors. Stopping on the error count biases the WER by ~1/`N` relative, negligible next to the statistical noise.
+
+**Precision and compilation.** Models trained with `precision: bf16-mixed` should be evaluated with `precision=bf16-mixed`: evals run much faster (about 2.5× on BCH(31,21) RECCT) with the same WER. The fp32 default (`32-true`) is always safe, and some models (e.g. GRU) need it. In both precisions, the decoder is `torch.compile`d when its checkpoint was trained with `compile: true`; the first batch then pays a few seconds of compile warm-up.
 
 **CPU threads.** `sbnd-test` deliberately runs its main process single-threaded on the CPU (its CPU work is only per-batch error counting), so setting `OMP_NUM_THREADS` is not needed.
 

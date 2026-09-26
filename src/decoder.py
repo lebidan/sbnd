@@ -47,9 +47,8 @@ class BaseDecoder(nn.Module, ABC):
         this while keeping the full summary table (FLOPs and input/output sizes
         included). Consequences: a decoder
         used standalone (outside `SBNDLitModule`) stays eager until something
-        calls `_maybe_compile()`; the test path (`sbnd-test`) runs eager, which
-        is already the case since the compiled state does not survive checkpoint
-        save/reload.
+        calls `_maybe_compile()`; the compiled state does not survive checkpoint
+        save/reload, so `sbnd-test` calls `_maybe_compile()` after loading.
 
     Attributes set by the base class (do not override)
     --------------------------------------------------
@@ -76,7 +75,6 @@ class BaseDecoder(nn.Module, ABC):
         self.error_space = error_space
         self.output_sz = code.k if error_space == "message" else code.n
         self._compile = compile
-        self._compiled_done = False
         self.example_input_array = (torch.zeros(1, code.n), torch.zeros(1, code.m))
 
     def _maybe_compile(self) -> None:
@@ -87,16 +85,11 @@ class BaseDecoder(nn.Module, ABC):
         it after the model summary has run; see the `compile` argument docstring
         for the (measured) reason.
         """
-        # getattr guards: a decoder unpickled from a checkpoint written before these
-        # attributes existed (e.g. resuming/continuing an older run) won't have them
-        # in its restored __dict__. Defaults reproduce the pre-existing behavior
-        # (no compile / not yet compiled).
-        if getattr(self, "_compile", False) and not getattr(
-            self, "_compiled_done", False
-        ):
-            log.info("Compiling model forward for faster training")
+        # getattr: decoders pickled before `_compile` existed lack it. Test torch's own
+        # state, not a flag of ours: a pickled flag would outlive the compiled forward.
+        if getattr(self, "_compile", False) and self._compiled_call_impl is None:
+            log.info("Compiling model forward")
             self.compile()
-            self._compiled_done = True
 
     @abstractmethod
     def forward(self, ym: Tensor, s: Tensor) -> Tensor: ...

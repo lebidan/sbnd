@@ -35,6 +35,8 @@ def bipolar_to_bit(x: Tensor) -> Tensor:
 
 # column labels for the output csv file
 COLUMNS = ["Eb/N0", "WER", "BER", "CW errors", "Bit errors", "Total CW"]
+# accepted `precision` values (Lightning naming)
+PRECISIONS = ("32-true", "bf16-mixed")
 # raw counters accumulated across runs (WER/BER are derived from them)
 COUNTS = ("CW errors", "Bit errors", "Total CW")
 
@@ -174,7 +176,10 @@ def test_model(
     show_progress: bool = True,
     t: int = 0,
     min_cw_errors: int = 0,
+    precision: str = "32-true",
 ) -> list[dict[str, float]]:
+    if precision not in PRECISIONS:
+        raise ValueError(f"precision must be one of {PRECISIONS}, got {precision!r}")
     if tts is None:
         tts = SingleShotDecoder()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -183,6 +188,9 @@ def test_model(
         torch.set_float32_matmul_precision("high")
     model = model.to(device)
     model.eval()
+    # After any model summary / FLOP count (sbnd-test runs none); no-op if compile=False
+    if hasattr(model.decoder, "_maybe_compile"):
+        model.decoder._maybe_compile()  # type: ignore[operator]
     error_space = getattr(model.decoder, "error_space", "codeword")
     # Each run only counts its own samples; merge_into_csv adds them to what is
     # on disk after each SNR point, so re-runs and concurrent runs accumulate.
@@ -210,7 +218,10 @@ def test_model(
                 ym, syndromes, targets, _ = batch  # per-sample loss weight unused
                 ym_dev = ym.to(device)
                 synd_dev = syndromes.to(device)
-                preds = tts.decode(model, code, ym_dev, synd_dev)  # type: ignore[attr-defined]
+                with torch.autocast(
+                    device.type, torch.bfloat16, enabled=precision == "bf16-mixed"
+                ):
+                    preds = tts.decode(model, code, ym_dev, synd_dev)  # type: ignore[attr-defined]
                 update_error_stats(
                     code, error_space, preds.cpu(), targets, syndromes, delta, t
                 )
@@ -269,6 +280,8 @@ def _main(cfg: DictConfig) -> None:
         budget = f"At most {budget}, stopping early at {cfg.min_cw_errors} CW errors"
     log.info(budget)
     log.info(f"Dataloading will use {cfg.num_workers} cpus")
+    compiled = getattr(model.decoder, "_compile", False)
+    log.info(f"Precision: {cfg.precision}, torch.compile: {compiled}")
 
     # Resolve HDD correction capability (t=0 if hdd=false)
     t = resolve_hdd_t(model, code, cfg.hdd)
@@ -292,7 +305,12 @@ def _main(cfg: DictConfig) -> None:
 
     # Build the output file path
     pathlib.Path(cfg.output_dir).mkdir(parents=True, exist_ok=True)
-    suffix = tts.suffix + ("-hdd" if cfg.hdd else "")
+    # suffix order: <tts>[-bf16][-hdd]
+    suffix = (
+        tts.suffix
+        + ("-bf16" if cfg.precision == "bf16-mixed" else "")
+        + ("-hdd" if cfg.hdd else "")
+    )
     output_file = cfg.output_dir + "/" + pathlib.Path(model_file).stem + suffix + ".csv"
     log.info(f"Results will be saved to file: {output_file}")
 
@@ -309,6 +327,7 @@ def _main(cfg: DictConfig) -> None:
         n_test_batches=cfg.num_batches,
         t=t,
         min_cw_errors=cfg.min_cw_errors,
+        precision=cfg.precision,
     )
 
     # Pretty print results in the terminal
