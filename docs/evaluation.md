@@ -64,7 +64,7 @@ The active TTS strategy, the precision and the HDD flag are reflected in the CSV
 | `batch_size` | 4096 | Test batch size |
 | `num_batches` | 1024 | Number of batches per SNR point (a maximum when `min_cw_errors > 0`) |
 | `min_cw_errors` | 500 | Stop an SNR point early once this run has seen this many codeword errors; `0` = always run `num_batches` — see below |
-| `num_workers` | 8 | Number of workers for dataloading |
+| `num_workers` | 2 | Number of workers for dataloading |
 | `precision` | `32-true` | `32-true` (fp32) or `bf16-mixed` (bf16 autocast, adds `-bf16` to the CSV name) — see below |
 | `hdd` | `false` | Enable hard-decision decoding emulation — see §2 |
 | `tts` | `SingleShotDecoder` | Decoding strategy — see §3 |

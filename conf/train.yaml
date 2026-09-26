@@ -56,10 +56,10 @@ project: sbnd
 # global seed
 seed: 1234
 
-# default number of nodes, GPUs per node, and CPU cores (or workers) per GPU
+# default number of nodes, GPUs per node, and DataLoader workers per GPU
 nodes:  1
 gpus:   1
-cpus:   8
+cpus:   2
 
 # default maximum of epochs (to be overridden by experiments)
 max_epochs: 1

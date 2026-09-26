@@ -282,6 +282,8 @@ trainer:
 
 We recommend `bf16-mixed` precision for faster training with negligible impact on accuracy  , especially with transformer-based models. The only exception is the `StackedGRU` decoder, which we found to require `fp32` precision for both stability and performance. For the full list of supported trainer options, see the [Lightning Trainer documentation](https://lightning.ai/docs/pytorch/stable/common/trainer.html).
 
+**Resources.** `nodes`, `gpus` (per node) and `cpus` (DataLoader workers per GPU, default 2) set the hardware used. On Slurm, request about 4 CPUs per GPU (e.g. `--cpus-per-gpu=4`), which covers the 2 workers plus the training process; more workers don't speed training up.
+
 ## Resuming and continuing training
 
 Two flags control how an existing checkpoint is consumed by `sbnd-train`:

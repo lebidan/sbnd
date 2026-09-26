@@ -213,7 +213,7 @@ sbnd-train exp=ecct-bch-63-45-ml-4m-2dB-aug
 Any config value can be overridden on the command line:
 
 ```
-sbnd-train exp=ecct-bch-63-45-ml-4m-2dB-aug gpus=2 cpus=16 max_epochs=64 lr=0.001
+sbnd-train exp=ecct-bch-63-45-ml-4m-2dB-aug gpus=2 max_epochs=64 lr=0.001
 ```
 
 Training artifacts (Hydra config, logs, checkpoints) are saved under `./log/train/runs/YYYY-MM-DD_HH-MM-SS/`. Two checkpoints are written to the `checkpoints/` run subdirectory: `last.ckpt` (latest epoch) and `<exp-file-name>-<max_epochs>epochs-<wandb-run-name>.ckpt` (best model by validation accuracy).

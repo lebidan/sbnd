@@ -55,7 +55,7 @@ batch_size: 4096
 # Stop an SNR point once this run has seen this many codeword errors
 # (num_batches is then the maximum). 0 = always run num_batches.
 min_cw_errors: 500
-num_workers: 8
+num_workers: 2
 # 32-true (fp32, safe for all models) or bf16-mixed (much faster for models trained in bf16-mixed)
 precision: 32-true
 

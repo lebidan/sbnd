@@ -28,7 +28,7 @@ Pass on the CLI after `exp=<name>`:
 | Resume an interrupted run | `+resume=<ckpt>` |
 | Disable wandb online sync | `offline=true` |
 | Different GPU count | `gpus=2` |
-| Different num workers | `cpus=16` |
+| Different num workers | `cpus=4` |
 | Quick smoke test | `trainer.fast_dev_run=true` |
 
 For `+continue=` / `+resume=`, resolve the ckpt the same way `sbnd-eval` does (see that skill). Don't ask the user to paste the path if it's discoverable.
