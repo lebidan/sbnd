@@ -35,7 +35,7 @@ Read the code from the source experiment (either via the resolved `<output_dir>/
 | `ldpc.ccsds.128.64.mat` | `ldpc-ccsds-128-64` |
 | `polar.rptu.128.64.mat` | `polar-rptu-128-64` |
 
-If the code has no preset, omit `eval=` (the base `test.yaml` defaults are sane) and tell the user — they may want to override `snr_min/max/step`, `batch_size`, `num_batches`.
+If the code has no preset, omit `eval=` (the base `test.yaml` defaults are sane) and tell the user — they may want to override `snr_min/max/step`, `batch_size`, `num_batches`, `min_cw_errors`.
 
 ## Translating user phrasing into overrides
 
@@ -71,7 +71,7 @@ For BCH/QC the simple override block:
 For RM/Polar add the `mat_file` and `num_perms` to the transform block. Check `docs/evaluation.md` for canonical examples if you're unsure.
 
 **SNR range tweaks**: `snr_min=`, `snr_max=`, `snr_step=`.
-**Monte-Carlo budget**: `num_batches=`, `batch_size=`. Larger budget → tighter low-WER estimates. Defaults from the eval preset are usually fine.
+**Monte-Carlo budget**: `num_batches=`, `batch_size=`, `min_cw_errors=`. Each SNR point stops once the run has seen `min_cw_errors` codeword errors (default 500, ≈ ±9% 95% CI on WER; `0` = always run all batches), so `num_batches × batch_size` is the per-point maximum. Raise `min_cw_errors` for tighter estimates everywhere; raise the budget for tighter low-WER (high-SNR) estimates. Defaults from the eval preset are usually fine.
 
 ## Launching
 

@@ -52,6 +52,9 @@ snr_step: 1.0
 # Monte Carlo sampling
 num_batches: 1024
 batch_size: 4096
+# Stop an SNR point once this run has seen this many codeword errors
+# (num_batches is then the maximum). 0 = always run num_batches.
+min_cw_errors: 500
 num_workers: 8
 
 # Hard-decision decoding emulation (requires a code with known dmin and a

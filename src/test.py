@@ -173,6 +173,7 @@ def test_model(
     num_workers: int = 16,
     show_progress: bool = True,
     t: int = 0,
+    min_cw_errors: int = 0,
 ) -> list[dict[str, float]]:
     if tts is None:
         tts = SingleShotDecoder()
@@ -205,7 +206,7 @@ def test_model(
         )
         dl = DataLoader(ds, batch_size=None, num_workers=num_workers)
         with torch.no_grad():
-            for batch in tqdm(dl, disable=not show_progress):
+            for b, batch in enumerate(tqdm(dl, disable=not show_progress), 1):
                 ym, syndromes, targets, _ = batch  # per-sample loss weight unused
                 ym_dev = ym.to(device)
                 synd_dev = syndromes.to(device)
@@ -213,6 +214,12 @@ def test_model(
                 update_error_stats(
                     code, error_space, preds.cpu(), targets, syndromes, delta, t
                 )
+                # This run's errors only: re-runs and concurrent runs each add >= min_cw_errors
+                if min_cw_errors and delta["CW errors"] >= min_cw_errors:
+                    print(
+                        f"Stopped after {b}/{n_test_batches} batches ({int(delta['CW errors'])} CW errors)"
+                    )
+                    break
         rows = merge_into_csv(output_file, snr, delta, code.k)
         # print the cumulative stats at this SNR point
         print(rows[snr])
@@ -255,9 +262,10 @@ def _main(cfg: DictConfig) -> None:
     log.info(
         f"Eb/N0 range to simulate: from {ebno_dB_range[0]} to {ebno_dB_range[-1]} by step of {cfg.snr_step} dB ({len(ebno_dB_range)} values)"
     )
-    log.info(
-        f"{cfg.num_batches * cfg.batch_size:,} samples per Eb/N0 value ({cfg.num_batches} batches of {cfg.batch_size} samples per batch)"
-    )
+    budget = f"{cfg.num_batches * cfg.batch_size:,} samples per Eb/N0 value ({cfg.num_batches} batches of {cfg.batch_size} samples per batch)"
+    if cfg.min_cw_errors > 0:
+        budget = f"At most {budget}, stopping early at {cfg.min_cw_errors} CW errors"
+    log.info(budget)
     log.info(f"Dataloading will use {cfg.num_workers} cpus")
 
     # Resolve HDD correction capability (t=0 if hdd=false)
@@ -298,6 +306,7 @@ def _main(cfg: DictConfig) -> None:
         test_bs=cfg.batch_size,
         n_test_batches=cfg.num_batches,
         t=t,
+        min_cw_errors=cfg.min_cw_errors,
     )
 
     # Pretty print results in the terminal

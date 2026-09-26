@@ -62,11 +62,14 @@ The active TTS strategy and the HDD flag are reflected in the CSV filename suffi
 | `model` | — (required) | Path to the model checkpoint to evaluate |
 | `snr_min` / `snr_max` / `snr_step` | 0.0 / 5.0 / 1.0 | Eb/N₀ range to simulate (dB) |
 | `batch_size` | 4096 | Test batch size |
-| `num_batches` | 1024 | Number of batches per SNR point |
+| `num_batches` | 1024 | Number of batches per SNR point (a maximum when `min_cw_errors > 0`) |
+| `min_cw_errors` | 500 | Stop an SNR point early once this run has seen this many codeword errors; `0` = always run `num_batches` — see below |
 | `num_workers` | 8 | Number of workers for dataloading |
 | `hdd` | `false` | Enable hard-decision decoding emulation — see §2 |
 | `tts` | `SingleShotDecoder` | Decoding strategy — see §3 |
 | `output_dir` | `./log/test` | Output directory for the results CSV |
+
+**Early stop on error count.** The accuracy of a Monte Carlo WER estimate depends on the number of errors observed (relative std ≈ 1/√errors), not on the number of words simulated: 500 errors give a 95% confidence interval of about ±9% on the WER, 1000 errors about ±6%. With `min_cw_errors=N`, each SNR point stops at the first batch where the run's codeword errors reach `N`, so low-SNR points finish quickly and `num_batches` only caps the high-SNR ones. The count covers the current run only (not what is already in the CSV): re-running a point always adds ≥ `N` new errors, and `k` concurrent runs on the same file yield ~`k × N` errors. Stopping on the error count biases the WER by ~1/`N` relative, negligible next to the statistical noise.
 
 ## 2. Hard-decision decoding emulation
 
