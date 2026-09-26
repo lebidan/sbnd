@@ -217,7 +217,8 @@ class TTADecoder:
                 new_logits = model(ymp, in_synd).take_along_dim(
                     perms_inv[needs_update, perm], dim=-1
                 )
-                logits[perm, needs_update] = new_logits
+                # index_put won't cast: model output is bf16 under autocast
+                logits[perm, needs_update] = new_logits.to(logits.dtype)
                 out_synd = 1 - 2 * (((logits[perm] < 0).float() @ Ht) % 2)
                 needs_update = torch.any(out_synd * chan_synd < 0, dim=-1)
 
