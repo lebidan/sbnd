@@ -71,6 +71,8 @@ The active TTS strategy and the HDD flag are reflected in the CSV filename suffi
 
 **Early stop on error count.** The accuracy of a Monte Carlo WER estimate depends on the number of errors observed (relative std ≈ 1/√errors), not on the number of words simulated: 500 errors give a 95% confidence interval of about ±9% on the WER, 1000 errors about ±6%. With `min_cw_errors=N`, each SNR point stops at the first batch where the run's codeword errors reach `N`, so low-SNR points finish quickly and `num_batches` only caps the high-SNR ones. The count covers the current run only (not what is already in the CSV): re-running a point always adds ≥ `N` new errors, and `k` concurrent runs on the same file yield ~`k × N` errors. Stopping on the error count biases the WER by ~1/`N` relative, negligible next to the statistical noise.
 
+**CPU threads.** `sbnd-test` deliberately runs its main process single-threaded on the CPU (its CPU work is only per-batch error counting), so setting `OMP_NUM_THREADS` is not needed.
+
 ## 2. Hard-decision decoding emulation
 
 Setting `hdd=true` enables a hard-decision decoding emulation in which any prediction is declared successful as soon as the number of bit errors in the error pattern inferred by the SBND model is at most `t = ⌊(d_min − 1) / 2⌋`, the bounded-distance correction radius of the code. 
