@@ -250,6 +250,10 @@ class SBNDLitModule(LightningModule):
         # reset monitoring accumulators at the start of each epoch
         self._grad_norm_acc: list[Tensor] = []
         self._adam_step_max_acc: list[float] = []
+        # reshuffle multi-file datasets (Lightning doesn't call this hook on datamodules)
+        train_ds: Any = getattr(self.trainer.datamodule, "train_ds", None)  # type: ignore[attr-defined]
+        if hasattr(train_ds, "set_epoch"):
+            train_ds.set_epoch(self.current_epoch)
 
     def on_train_epoch_end(self) -> None:
         # log cumulated layer norms

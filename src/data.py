@@ -449,12 +449,14 @@ class MultiDatasetTrainDataset(Dataset):
     Epoch lifecycle and DDP correctness:
 
         Per-dataset shuffled index lists are derived deterministically from
-        `(base_seed, epoch, k)` at every epoch via `set_epoch(epoch)`. The
-        datamodule calls `set_epoch` from `on_train_epoch_start`, so all DDP
-        ranks compute identical shuffles and Lightning's auto-installed
-        `DistributedSampler` over batch indices `[0, n_batches)` gives each
-        rank a disjoint slice — no row appears in two batches of the same
-        epoch, across all ranks. No custom Sampler is required.
+        `(base_seed, epoch, k)` at every epoch via `set_epoch(epoch)`, called
+        by `SBNDLitModule.on_train_epoch_start` (Lightning doesn't run that hook
+        on datamodules) and by `SBNDDataModule.train_dataloader` for the first
+        (possibly resumed) epoch. All DDP ranks compute identical shuffles
+        and Lightning's auto-installed `DistributedSampler` over batch indices
+        `[0, n_batches)` gives each rank a disjoint slice — no row appears in
+        two batches of the same epoch, across all ranks. No custom Sampler is
+        required.
 
         The intra-batch row permutation uses the global RNG (worker-decorrelated
         by `seed_everything(workers=True)`); this affects only display order
@@ -871,8 +873,8 @@ class SBNDDataModule(LightningDataModule):
                 )
         else:
             # multi-file path: batch-producing dataset; per-epoch shuffles
-            # seeded by (base_seed, epoch) via set_epoch (called from
-            # on_train_epoch_start). DDP correctness is documented in
+            # seeded by (base_seed, epoch) via set_epoch (see class docstring
+            # for who calls it). DDP correctness is documented in
             # MultiDatasetTrainDataset.
             counts = proportional_counts(
                 batch_mix_t, self.train_bs, group_labels=self.train_files
@@ -1003,15 +1005,6 @@ class SBNDDataModule(LightningDataModule):
                     f"Created an on-demand test set of {self.n_test_samples} true error patterns at Eb/N0={ebno_dB} dB"
                 )
 
-    def on_train_epoch_start(self) -> None:
-        # Reshuffle per-dataset index lists in multi-file dataset mode. Called
-        # from the main process before the training DataLoader starts iterating;
-        # this guarantees workers spawned for the epoch inherit the new state
-        # via pickle. Single-file and on-demand training don't need this.
-        if isinstance(self.train_ds, MultiDatasetTrainDataset):
-            assert self.trainer is not None
-            self.train_ds.set_epoch(self.trainer.current_epoch)
-
     def _train_extra_args(self) -> dict:
         # strip persistent_workers=True for multi-file dataset training
         if isinstance(self.train_ds, MultiDatasetTrainDataset):
@@ -1021,6 +1014,12 @@ class SBNDDataModule(LightningDataModule):
         return self.extra_args
 
     def train_dataloader(self) -> DataLoader:
+        if isinstance(self.train_ds, MultiDatasetTrainDataset) and self.trainer:
+            # first-epoch iterator is built before on_train_epoch_start runs; use
+            # `processed` (as Lightning does for samplers): on resume from an
+            # end-of-epoch ckpt, current_epoch still lags by one at this point
+            epoch = self.trainer.fit_loop.epoch_progress.current.processed  # type: ignore[attr-defined]
+            self.train_ds.set_epoch(epoch)
         if isinstance(self.train_ds, MultiDatasetTrainDataset) or self.on_demand:
             # batch-producing datasets → automatic batching disabled
             return DataLoader(
