@@ -253,6 +253,9 @@ def main(cfg: DictConfig) -> None:
     trainer = lit.Trainer(
         **cfg.trainer, **training_args, logger=loggers, callbacks=trainer_cb
     )
+    # Deterministic mode fills every new buffer to guard against reads of uninitialized
+    # memory; no op here reads any (runs stay bit-identical) and the fill costs ~10%/step
+    torch.utils.deterministic.fill_uninitialized_memory = False  # type: ignore[attr-defined]
 
     # Check if there is a checkpoint to resume or continue from
     # if so, setup the model and fit options accordingly
