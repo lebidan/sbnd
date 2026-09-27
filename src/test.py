@@ -97,7 +97,7 @@ def merge_into_csv(
 
 
 def update_error_stats(
-    code: LinearCode,
+    Ginv: Tensor,
     error_space: str,
     preds: Tensor,
     targets: Tensor,
@@ -111,41 +111,27 @@ def update_error_stats(
     BER is always reported on the k message bits. CW errors are reported on the
     full n-bit codeword when `error_space == "codeword"` (true FER), and on the
     k message bits otherwise (we don't have access to codeword-level errors when
-    working in message mode).
+    working in message mode). `Ginv` is `code.Ginv` as float, on the device of
+    the other tensors.
     """
-    total_cw = targets.size(0)
-    stats["Total CW"] += total_cw
     # bit-level diff in the space where the model was trained (shape (bs, n) or (bs, k))
     # and in the message space (always (bs, k)) for BER counting
-    diff_fer = (preds != targets).to(torch.int8)
-    if error_space == "codeword":
-        diff_ber = (diff_fer @ code.Ginv).bitwise_and(1)
-    else:
-        diff_ber = diff_fer
-    # identify all non-zero target error patterns (the all-zero ones don't even enter the decoder)
-    nz_target_idx = torch.any(targets, dim=1).nonzero().squeeze(dim=1)
-    # among them, those with zero syndromes (+1 syndromes in bipolar form) are necessarily decoding errors
-    zero_synd_idx = (
-        torch.all(syndromes[nz_target_idx] > 0, dim=1).nonzero().squeeze(dim=1)
-    )
-    zs = nz_target_idx[zero_synd_idx]
-    stats["Bit errors"] += diff_ber[zs].sum().item()
-    stats["CW errors"] += torch.any(diff_fer[zs], dim=1).sum().item()
-    # analyze the predictions for the non-zero error patterns with a non-zero syndrome
-    nz_synd_idx = (
-        torch.any(syndromes[nz_target_idx] < 0, dim=1).nonzero().squeeze(dim=1)
-    )
-    ns = nz_target_idx[nz_synd_idx]
-    fer_err = diff_fer[ns]
-    ber_err = diff_ber[ns]
-    # emulate HDD by counting the number of bit errors and declaring a decoding success if
-    # the number of bit errors is less than the error correction capability t of the code
+    diff_fer = preds != targets
+    # Keep outside bf16 autocast: this GF(2) product is exact in fp32/TF32, bf16 only up to 256
+    diff_ber = (diff_fer.float() @ Ginv) % 2 if error_space == "codeword" else diff_fer
+    # all-zero error patterns don't even enter the decoder; nonzero ones with a zero
+    # syndrome (+1 in bipolar form) are necessarily decoding errors
+    counted = torch.any(targets != 0, dim=1)
+    # emulate HDD: a detected error with at most t bit errors is a decoding success
     if t > 0:
-        hdd_miss = (fer_err.sum(dim=1) > t).unsqueeze(1)
-        fer_err = fer_err & hdd_miss
-        ber_err = ber_err & hdd_miss
-    stats["Bit errors"] += ber_err.sum().item()
-    stats["CW errors"] += torch.any(fer_err, dim=1).sum().item()
+        missed = torch.all(syndromes > 0, dim=1) | (diff_fer.sum(dim=1) > t)
+        counted &= missed
+    cw = (diff_fer.any(dim=1) & counted).sum()
+    bits = (diff_ber.sum(dim=1) * counted).sum()
+    cw, bits = torch.stack([cw, bits]).tolist()  # one GPU sync, no boolean indexing
+    stats["Total CW"] += targets.size(0)
+    stats["CW errors"] += cw
+    stats["Bit errors"] += bits
 
 
 def resolve_hdd_t(model: SBNDLitModule, code: LinearCode, hdd: bool) -> int:
@@ -192,6 +178,7 @@ def test_model(
     if hasattr(model.decoder, "_maybe_compile"):
         model.decoder._maybe_compile()  # type: ignore[operator]
     error_space = getattr(model.decoder, "error_space", "codeword")
+    Ginv = code.Ginv.float().to(device)  # no int8 matmul on CUDA
     # Each run only counts its own samples; merge_into_csv adds them to what is
     # on disk after each SNR point, so re-runs and concurrent runs accumulate.
     if pathlib.Path(output_file).exists():
@@ -232,7 +219,7 @@ def test_model(
                     ):
                         preds[nz] = tts.decode(model, code, ym_nz, synd_nz)  # type: ignore[attr-defined]
                 update_error_stats(
-                    code, error_space, preds.cpu(), targets, syndromes, delta, t
+                    Ginv, error_space, preds, targets.to(device), synd_dev, delta, t
                 )
                 # This run's errors only: re-runs and concurrent runs each add >= min_cw_errors
                 if min_cw_errors and delta["CW errors"] >= min_cw_errors:
