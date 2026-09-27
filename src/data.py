@@ -349,6 +349,9 @@ class OnDemandDataset(Dataset):
         )
 
     def __getitem__(self, idx: int) -> tuple[Tensor, Tensor, Tensor, Tensor]:
+        # idx is otherwise unused; IndexError ends plain `for batch in ds` loops
+        if not 0 <= idx < self.n_batches:
+            raise IndexError(idx)
         if self.train:
             assert self.counts is not None  # set by __init__ when train=True
             y, e, w = generate_random_training_batch(
