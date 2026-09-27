@@ -326,7 +326,7 @@ data:
   test_bs: 4096
 ```
 
-`n_test_samples` is rounded down to the nearest multiple of `test_bs`. In addition, the `PeriodicTest` callback runs a lightweight interim test evaluation every `every_n_epochs` epochs (default: 50) during training, logging results under the `periodic_test/` namespace. This allows monitoring test-set progress without waiting for the full training run to complete. The interval can be changed in the experiment config:
+`n_test_samples` is rounded down to the nearest multiple of `test_bs`. In addition, the `PeriodicTest` callback runs a lightweight interim test evaluation every `every_n_epochs` epochs (default: 50) during training, logging results under the `periodic_test/` namespace (with multiple GPUs, the test words are split across them, so the pooled count still equals `n_test_samples`). This allows monitoring test-set progress without waiting for the full training run to complete. The interval can be changed in the experiment config:
 
 ```yaml
 periodic_test_cb:

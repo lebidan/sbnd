@@ -1,6 +1,6 @@
 # Train a SBND decoder model using PyTorch Lightning, with support for multi-GPU training, logging and checkpointing.
 
-import logging, hydra, os
+import itertools, logging, hydra, os
 import torch, lightning as lit
 
 from typing import Any, Iterable, cast
@@ -44,7 +44,7 @@ class WandbModifyCheckpointName(Callback):
 # Periodically evaluate the model on the test dataloader(s) during training to
 # monitor progress.
 # Runs a lightweight manual eval loop (no reentrant trainer.test() call) every
-# `every_n_epochs` epochs and logs metrics under the `test/` namespace.
+# `every_n_epochs` epochs and logs metrics under the `periodic_test/` namespace.
 class PeriodicTest(Callback):
     def __init__(self, every_n_epochs: int = 50) -> None:
         super().__init__()
@@ -82,13 +82,24 @@ class PeriodicTest(Callback):
                     loss_sum = torch.zeros((), device=device)
                     acc_sum = torch.zeros((), device=device)
                     total = 0
-                    for batch in dl:
+                    # split the batches across ranks, pooled total = n_test_samples
+                    ws, rk = trainer.world_size, trainer.global_rank
+                    share = len(dl) // ws + (rk < len(dl) % ws)
+                    for batch in itertools.islice(dl, share):
                         batch = tuple(t.to(device) for t in batch)
                         loss, acc = lm.model_step(batch)  # type: ignore[operator]
                         bs = batch[0].size(0)
                         loss_sum = loss_sum + loss * bs
                         acc_sum = acc_sum + acc * bs
                         total += bs
+                    # every rank must reduce (even with 0 batches) or DDP hangs
+                    loss_sum, acc_sum, n = (
+                        trainer.strategy.reduce(x, reduce_op="sum")
+                        for x in (loss_sum, acc_sum, torch.tensor(total, device=device))
+                    )
+                    # keep dividing by a Python int: CUDA divides by a scalar via its
+                    # reciprocal, so a tensor divisor would change the last bit
+                    total = int(n)
                     if total == 0:
                         continue
                     mean_acc = acc_sum / total
@@ -100,6 +111,7 @@ class PeriodicTest(Callback):
                 lm.train()
 
         if metrics:
+            lm.log_dict(metrics)
             # report test results in the terminal, as follows:
             # "Periodic test results — 0.5dB: FER=1.2e-3, 1.0dB: FER=3.4e-4, ..."
             fer_parts = []
