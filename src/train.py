@@ -1,6 +1,6 @@
 # Train a SBND decoder model using PyTorch Lightning, with support for multi-GPU training, logging and checkpointing.
 
-import logging, hydra, os
+import itertools, logging, hydra, os
 import torch, lightning as lit
 
 from typing import Any, Iterable, cast
@@ -44,7 +44,7 @@ class WandbModifyCheckpointName(Callback):
 # Periodically evaluate the model on the test dataloader(s) during training to
 # monitor progress.
 # Runs a lightweight manual eval loop (no reentrant trainer.test() call) every
-# `every_n_epochs` epochs and logs metrics under the `test/` namespace.
+# `every_n_epochs` epochs and logs metrics under the `periodic_test/` namespace.
 class PeriodicTest(Callback):
     def __init__(self, every_n_epochs: int = 50) -> None:
         super().__init__()
@@ -82,13 +82,23 @@ class PeriodicTest(Callback):
                     loss_sum = torch.zeros((), device=device)
                     acc_sum = torch.zeros((), device=device)
                     total = 0
-                    for batch in dl:
+                    # split the batches across ranks, pooled total = n_test_samples
+                    ws, rk = trainer.world_size, trainer.global_rank
+                    share = len(dl) // ws + (rk < len(dl) % ws)
+                    for batch in itertools.islice(dl, share):
                         batch = tuple(t.to(device) for t in batch)
                         loss, acc = lm.model_step(batch)  # type: ignore[operator]
                         bs = batch[0].size(0)
                         loss_sum = loss_sum + loss * bs
                         acc_sum = acc_sum + acc * bs
                         total += bs
+                    # every rank must reduce (even with 0 batches) or DDP hangs
+                    loss_sum, acc_sum, n = (
+                        trainer.strategy.reduce(x, reduce_op="sum")
+                        for x in (loss_sum, acc_sum, torch.tensor(total, device=device))
+                    )
+                    # divide by a Python int: a tensor divisor changes the last bit on CUDA
+                    total = int(n)
                     if total == 0:
                         continue
                     mean_acc = acc_sum / total
@@ -100,6 +110,7 @@ class PeriodicTest(Callback):
                 lm.train()
 
         if metrics:
+            lm.log_dict(metrics)
             # report test results in the terminal, as follows:
             # "Periodic test results — 0.5dB: FER=1.2e-3, 1.0dB: FER=3.4e-4, ..."
             fer_parts = []
@@ -168,11 +179,10 @@ def main(cfg: DictConfig) -> None:
     # see https://github.com/pytorch/pytorch/issues/94788
     torch._logging.set_logs(dynamo=logging.ERROR)
 
-    # Set seed for reproducibility (if any). `workers=True` is required: it
-    # installs a worker_init_fn that gives each DataLoader worker a distinct
-    # derived seed, and Lightning offsets the seed per DDP rank. Together this
-    # guarantees that on-demand training samples are decorrelated across both
-    # workers and ranks (cf. SBNDDataModule docstring).
+    # Set seed for reproducibility (if any). `workers=True` gives each DataLoader
+    # worker a seed derived from (seed, worker_id, rank), decorrelating on-demand
+    # samples across workers and ranks. Each rank's main process gets the same
+    # seed though, hence at least one worker is required (cf. SBNDDataModule).
     # When no seed is configured, decorrelation still holds: each DDP rank is
     # launched as an independent subprocess (different OS-entropy seed) and
     # PyTorch's default DataLoader gives each worker `base_seed + worker_id`.
@@ -254,6 +264,9 @@ def main(cfg: DictConfig) -> None:
     trainer = lit.Trainer(
         **cfg.trainer, **training_args, logger=loggers, callbacks=trainer_cb
     )
+    # Deterministic mode fills every new buffer to guard against reads of uninitialized
+    # memory; no op here reads any (runs stay bit-identical) and the fill costs ~10%/step
+    torch.utils.deterministic.fill_uninitialized_memory = False  # type: ignore[attr-defined]
 
     # Check if there is a checkpoint to resume or continue from
     # if so, setup the model and fit options accordingly

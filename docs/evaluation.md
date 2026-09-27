@@ -51,7 +51,9 @@ A few presets for the codes shipped with SBND are available in [`conf/eval/`](..
 
 Results are saved to a CSV file named after the checkpoint, under the output directory (default: [`./log/test/`](../log/test)). If the file already exists, new SNR points are appended; for SNR points that are already present, error counts are **accumulated** on top of the previous ones (and WER/BER are recomputed from the cumulative totals). This makes it possible to extend an evaluation incrementally across multiple runs and progressively tighten the statistics.
 
-The active TTS strategy and the HDD flag are reflected in the CSV filename suffix, so that different configurations of the same checkpoint do not overwrite one another (e.g. `<model>.csv`, `<model>-hdd.csv`, `<model>-sb5.csv`, `<model>-tta4-hdd.csv`).
+Rows are written sorted by Eb/N0. Each run only adds its own counts to what is on disk, under an exclusive file lock, so several `sbnd-test` processes can write the same output file concurrently (e.g. one per GPU, on the same or different SNR points) and their counts add up. The lock is a `<csv>.lock` sidecar file created next to the CSV. **Caveat:** on cluster filesystems where `flock` is node-local (e.g. Lustre mounted with `localflock`), concurrent runs are only safe when they run on the same node.
+
+The active TTS strategy, the precision and the HDD flag are reflected in the CSV filename suffix, in the order `<model>[<tts>][-bf16][-hdd].csv`, so that different configurations of the same checkpoint do not overwrite one another (e.g. `<model>.csv`, `<model>-hdd.csv`, `<model>-sb5.csv`, `<model>-bf16.csv`, `<model>-tta4-bf16-hdd.csv`).
 
 ### Options
 
@@ -60,11 +62,21 @@ The active TTS strategy and the HDD flag are reflected in the CSV filename suffi
 | `model` | — (required) | Path to the model checkpoint to evaluate |
 | `snr_min` / `snr_max` / `snr_step` | 0.0 / 5.0 / 1.0 | Eb/N₀ range to simulate (dB) |
 | `batch_size` | 4096 | Test batch size |
-| `num_batches` | 1024 | Number of batches per SNR point |
-| `num_workers` | 8 | Number of workers for dataloading |
+| `num_batches` | 1024 | Number of batches per SNR point (a maximum when `min_cw_errors > 0`) |
+| `min_cw_errors` | 500 | Stop an SNR point early once this run has seen this many codeword errors; `0` = always run `num_batches` — see below |
+| `num_workers` | 2 | Number of workers for dataloading (must be >= 1, the same rule as for training) |
+| `precision` | `32-true` | `32-true` (fp32) or `bf16-mixed` (bf16 autocast, adds `-bf16` to the CSV name) — see below |
 | `hdd` | `false` | Enable hard-decision decoding emulation — see §2 |
 | `tts` | `SingleShotDecoder` | Decoding strategy — see §3 |
 | `output_dir` | `./log/test` | Output directory for the results CSV |
+
+**Early stop on error count.** The accuracy of a Monte Carlo WER estimate depends on the number of errors observed (relative std ≈ 1/√errors), not on the number of words simulated: 500 errors give a 95% confidence interval of about ±9% on the WER, 1000 errors about ±6%. With `min_cw_errors=N`, each SNR point stops at the first batch where the run's codeword errors reach `N`, so low-SNR points finish quickly and `num_batches` only caps the high-SNR ones. The count covers the current run only (not what is already in the CSV): re-running a point always adds ≥ `N` new errors, and `k` concurrent runs on the same file yield ~`k × N` errors. Stopping on the error count biases the WER by ~1/`N` relative, negligible next to the statistical noise.
+
+**Precision and compilation.** Models trained with `precision: bf16-mixed` should be evaluated with `precision=bf16-mixed`: evals run much faster (about 2.5× on BCH(31,21) RECCT) with the same WER. The fp32 default (`32-true`) is always safe, and some models (e.g. GRU) need it. In both precisions, the decoder is `torch.compile`d when its checkpoint was trained with `compile: true`; the first batch then pays a few seconds of compile warm-up.
+
+**Zero-syndrome words.** Received words with a zero syndrome are not fed to the model (at high SNR they are most of the batch): their decoded word is the hard decision, left uncorrected. They are still counted in `Total CW`; those with a nonzero error pattern (undetectable errors, the error being a codeword) are counted as codeword errors, and their bit errors are the hard-decision ones.
+
+**CPU threads.** `sbnd-test` deliberately runs its main process single-threaded on the CPU (its CPU work is only per-batch error counting), so setting `OMP_NUM_THREADS` is not needed. On Slurm, request `num_workers + 1` CPUs (3 by default, e.g. `--cpus-per-task=3`): the cluster bills allocated CPUs, so the savings only show up if the allocation shrinks too. Without a GPU the model runs on the CPU and all threads are kept.
 
 ## 2. Hard-decision decoding emulation
 

@@ -67,14 +67,10 @@ class SBNDLitModule(LightningModule):
         return (w * per_sample).sum() / w.sum()
 
     def _cw_accuracy(self, e_pred: Tensor, e_true: Tensor) -> Tensor:
-        e_pred_bin = llr_to_bit(e_pred)
-        # only look for errors within predictions for the non-zero target patterns
-        is_equal = torch.ones(e_true.size(0), dtype=torch.bool, device=e_true.device)
-        nz_target_idx = torch.any(e_true, dim=1).nonzero().squeeze(1)
-        is_equal[nz_target_idx] = torch.all(
-            e_pred_bin[nz_target_idx] == e_true[nz_target_idx], dim=1
-        )
-        return torch.mean(is_equal.float()).detach()
+        # all-zero targets count as correct; masks, not nonzero(), which forces a GPU sync
+        correct = torch.all(llr_to_bit(e_pred) == e_true, dim=1)
+        correct |= ~torch.any(e_true, dim=1)
+        return correct.float().mean().detach()
 
     def model_step(
         self, batch: tuple[Tensor, Tensor, Tensor, Tensor]
@@ -254,6 +250,10 @@ class SBNDLitModule(LightningModule):
         # reset monitoring accumulators at the start of each epoch
         self._grad_norm_acc: list[Tensor] = []
         self._adam_step_max_acc: list[float] = []
+        # reshuffle multi-file datasets (Lightning doesn't call this hook on datamodules)
+        train_ds: Any = getattr(self.trainer.datamodule, "train_ds", None)  # type: ignore[attr-defined]
+        if hasattr(train_ds, "set_epoch"):
+            train_ds.set_epoch(self.current_epoch)
 
     def on_train_epoch_end(self) -> None:
         # log cumulated layer norms

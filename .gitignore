@@ -170,3 +170,6 @@ uv.lock
 data/datasets
 log/train/runs
 
+# sbnd-test CSV lock / temp files
+*.csv.lock
+*.csv.tmp

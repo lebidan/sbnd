@@ -35,7 +35,7 @@ Read the code from the source experiment (either via the resolved `<output_dir>/
 | `ldpc.ccsds.128.64.mat` | `ldpc-ccsds-128-64` |
 | `polar.rptu.128.64.mat` | `polar-rptu-128-64` |
 
-If the code has no preset, omit `eval=` (the base `test.yaml` defaults are sane) and tell the user — they may want to override `snr_min/max/step`, `batch_size`, `num_batches`.
+If the code has no preset, omit `eval=` (the base `test.yaml` defaults are sane) and tell the user — they may want to override `snr_min/max/step`, `batch_size`, `num_batches`, `min_cw_errors`.
 
 ## Translating user phrasing into overrides
 
@@ -70,8 +70,9 @@ For BCH/QC the simple override block:
 
 For RM/Polar add the `mat_file` and `num_perms` to the transform block. Check `docs/evaluation.md` for canonical examples if you're unsure.
 
+**Precision**: for a model trained with `bf16-mixed` (the usual case; check `trainer.precision` in `<run_dir>/.hydra/config.yaml`), add `precision=bf16-mixed` for a ~2.5× faster eval. Keep the fp32 default for GRU or when unsure.
 **SNR range tweaks**: `snr_min=`, `snr_max=`, `snr_step=`.
-**Monte-Carlo budget**: `num_batches=`, `batch_size=`. Larger budget → tighter low-WER estimates. Defaults from the eval preset are usually fine.
+**Monte-Carlo budget**: `num_batches=`, `batch_size=`, `min_cw_errors=`. Each SNR point stops once the run has seen `min_cw_errors` codeword errors (default 500, ≈ ±9% 95% CI on WER; `0` = always run all batches), so `num_batches × batch_size` is the per-point maximum. Raise `min_cw_errors` for tighter estimates everywhere; raise the budget for tighter low-WER (high-SNR) estimates. Defaults from the eval preset are usually fine.
 
 ## Launching
 
@@ -88,10 +89,10 @@ The positional ckpt is rewritten to `model=<path>` by an `sbnd-test` shim, so do
 Output goes to:
 
 ```
-log/test/<ckpt-stem>[<tts-suffix>][-hdd].csv
+log/test/<ckpt-stem>[<tts-suffix>][-bf16][-hdd].csv
 ```
 
-Where `<ckpt-stem>` is the ckpt filename without `.ckpt`, and the TTS suffix is `-sbN` (self-boosting, N iters) or `-ttaN` (TTA, N perms) or empty. The file is **append + dedup by SNR**, so re-running with different `num_batches` overwrites in place.
+Where `<ckpt-stem>` is the ckpt filename without `.ckpt`, and the TTS suffix is `-sbN` (self-boosting, N iters) or `-ttaN` (TTA, N perms) or empty; `-bf16` marks `precision=bf16-mixed`. The file **accumulates by SNR**: re-running an SNR point, sequentially or concurrently (e.g. one process per GPU), adds its error counts to the existing row and WER/BER are recomputed from the totals.
 
 After the run completes, read the CSV and report a compact per-SNR table (snr_db, fer, ber, n_words). Flag any SNR where `n_word_errors < ~100` — the FER estimate is noisy there.
 

@@ -1,12 +1,14 @@
 # Evaluate the test performance of a trained SBND model through Monte Carlo simulations.
 
-import os, sys, csv, pathlib
+import os, sys, csv, fcntl, pathlib
 import torch, hydra
 
 from hydra.utils import instantiate
 from torch import Tensor
 from torch.utils.data import DataLoader
 from omegaconf import DictConfig
+from contextlib import contextmanager
+from typing import Generator
 from tqdm import tqdm  # type: ignore[import-untyped]
 from tabulate import tabulate  # type: ignore[import-untyped]
 
@@ -33,6 +35,10 @@ def bipolar_to_bit(x: Tensor) -> Tensor:
 
 # column labels for the output csv file
 COLUMNS = ["Eb/N0", "WER", "BER", "CW errors", "Bit errors", "Total CW"]
+# accepted `precision` values (Lightning naming)
+PRECISIONS = ("32-true", "bf16-mixed")
+# raw counters accumulated across runs (WER/BER are derived from them)
+COUNTS = ("CW errors", "Bit errors", "Total CW")
 
 # Decimal precision used when keying rows by Eb/N0. Picked large enough to
 # distinguish the smallest SNR step we'd realistically use (0.01 dB), and
@@ -57,13 +63,46 @@ def write_csv(rows: list[dict[str, float]], path: str) -> None:
         writer.writerows(rows)
 
 
+@contextmanager
+def _csv_lock(path: str) -> Generator[None, None, None]:
+    # Lock a sidecar file, not the CSV: merge_into_csv replaces the CSV on each
+    # write, voiding any lock on it. flock may be node-local on cluster filesystems.
+    with open(path + ".lock", "w") as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        yield  # released when f is closed
+
+
+def merge_into_csv(
+    path: str, snr: float, delta: dict[str, float], k: int
+) -> dict[float, dict[str, float]]:
+    """Add this run's counts at `snr` to the counts already on disk; return all rows.
+
+    Re-reading under the lock lets concurrent sbnd-test runs writing the same
+    file (same or different SNR points) add up instead of overwriting each other.
+    """
+    with _csv_lock(path):
+        rows = {}
+        if pathlib.Path(path).exists():
+            rows = {_snr_key(r["Eb/N0"]): r for r in load_csv(path)}
+        row = rows.setdefault(snr, {c: 0.0 for c in COLUMNS})
+        row["Eb/N0"] = snr
+        for c in COUNTS:
+            row[c] += delta[c]
+        row["WER"] = row["CW errors"] / row["Total CW"]
+        row["BER"] = row["Bit errors"] / (row["Total CW"] * k)
+        tmp = f"{path}.{os.getpid()}.tmp"  # per-process: flock is node-local on Lustre
+        write_csv([rows[s] for s in sorted(rows)], tmp)
+        os.replace(tmp, path)  # atomic: a crash mid-write never truncates the CSV
+    return rows
+
+
 def update_error_stats(
-    code: LinearCode,
+    Ginv: Tensor,
     error_space: str,
     preds: Tensor,
     targets: Tensor,
     syndromes: Tensor,
-    stats: dict[str, float | int],
+    stats: dict[str, float],
     t: int = 0,
 ) -> None:
     """
@@ -72,41 +111,28 @@ def update_error_stats(
     BER is always reported on the k message bits. CW errors are reported on the
     full n-bit codeword when `error_space == "codeword"` (true FER), and on the
     k message bits otherwise (we don't have access to codeword-level errors when
-    working in message mode).
+    working in message mode). `Ginv` is `code.Ginv` as float, on the device of
+    the other tensors.
     """
-    total_cw = targets.size(0)
-    stats["Total CW"] += total_cw
     # bit-level diff in the space where the model was trained (shape (bs, n) or (bs, k))
     # and in the message space (always (bs, k)) for BER counting
-    diff_fer = (preds != targets).to(torch.int8)
-    if error_space == "codeword":
-        diff_ber = (diff_fer @ code.Ginv).bitwise_and(1)
-    else:
-        diff_ber = diff_fer
-    # identify all non-zero target error patterns (the all-zero ones don't even enter the decoder)
-    nz_target_idx = torch.any(targets, dim=1).nonzero().squeeze(dim=1)
-    # among them, those with zero syndromes (+1 syndromes in bipolar form) are necessarily decoding errors
-    zero_synd_idx = (
-        torch.all(syndromes[nz_target_idx] > 0, dim=1).nonzero().squeeze(dim=1)
-    )
-    zs = nz_target_idx[zero_synd_idx]
-    stats["Bit errors"] += diff_ber[zs].sum().item()
-    stats["CW errors"] += torch.any(diff_fer[zs], dim=1).sum().item()
-    # analyze the predictions for the non-zero error patterns with a non-zero syndrome
-    nz_synd_idx = (
-        torch.any(syndromes[nz_target_idx] < 0, dim=1).nonzero().squeeze(dim=1)
-    )
-    ns = nz_target_idx[nz_synd_idx]
-    fer_err = diff_fer[ns]
-    ber_err = diff_ber[ns]
-    # emulate HDD by counting the number of bit errors and declaring a decoding success if
-    # the number of bit errors is less than the error correction capability t of the code
+    diff_fer = preds != targets
+    # Keep outside bf16 autocast: this GF(2) product is exact in fp32/TF32, bf16 only up to 256
+    diff_ber = (diff_fer.float() @ Ginv) % 2 if error_space == "codeword" else diff_fer
+    # all-zero error patterns don't even enter the decoder; nonzero ones with a zero
+    # syndrome (+1 in bipolar form) are necessarily decoding errors
+    counted = torch.any(targets != 0, dim=1)
+    # emulate HDD: a detected error with at most t bit errors is a decoding success
     if t > 0:
-        hdd_miss = (fer_err.sum(dim=1) > t).unsqueeze(1)
-        fer_err = fer_err & hdd_miss
-        ber_err = ber_err & hdd_miss
-    stats["Bit errors"] += ber_err.sum().item()
-    stats["CW errors"] += torch.any(fer_err, dim=1).sum().item()
+        missed = torch.all(syndromes > 0, dim=1) | (diff_fer.sum(dim=1) > t)
+        counted &= missed
+    cw = (diff_fer.any(dim=1) & counted).sum()
+    # int64 sum: a float32 one is exact only up to 2^24 bit errors per batch
+    bits = (diff_ber.sum(dim=1, dtype=torch.int64) * counted).sum()
+    cw, bits = torch.stack([cw, bits]).tolist()  # one GPU sync, no boolean indexing
+    stats["Total CW"] += targets.size(0)
+    stats["CW errors"] += cw
+    stats["Bit errors"] += bits
 
 
 def resolve_hdd_t(model: SBNDLitModule, code: LinearCode, hdd: bool) -> int:
@@ -133,10 +159,14 @@ def test_model(
     tts: object | None = None,
     test_bs: int = 4096,
     n_test_batches: int = 512,
-    num_workers: int = 16,
+    num_workers: int = 2,
     show_progress: bool = True,
     t: int = 0,
+    min_cw_errors: int = 0,
+    precision: str = "32-true",
 ) -> list[dict[str, float]]:
+    if precision not in PRECISIONS:
+        raise ValueError(f"precision must be one of {PRECISIONS}, got {precision!r}")
     if tts is None:
         tts = SingleShotDecoder()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -145,39 +175,23 @@ def test_model(
         torch.set_float32_matmul_precision("high")
     model = model.to(device)
     model.eval()
+    # compiled state isn't pickled: recompile after loading (no-op if compile=False)
+    if hasattr(model.decoder, "_maybe_compile"):
+        model.decoder._maybe_compile()  # type: ignore[operator]
     error_space = getattr(model.decoder, "error_space", "codeword")
-    # Load existing rows if the output file already exists, otherwise start fresh.
-    # Index by Eb/N0 so we can accumulate stats when re-running the same SNR point.
-    # Keys are rounded to SNR_KEY_DECIMALS to absorb fp drift between torch.arange
-    # accumulation and CSV float round-trips (matters for steps like 0.1 or 0.05).
-    stats_by_snr: dict[float, dict[str, float]] = {}
+    Ginv = code.Ginv.float().to(device)  # no int8 matmul on CUDA
+    # Each run only counts its own samples; merge_into_csv adds them to what is
+    # on disk after each SNR point, so re-runs and concurrent runs accumulate.
     if pathlib.Path(output_file).exists():
-        for row in load_csv(output_file):
-            row["Eb/N0"] = _snr_key(row["Eb/N0"])
-            stats_by_snr[row["Eb/N0"]] = row
         log.info(
-            f"Appending to existing file: {output_file} ({len(stats_by_snr)} rows already present)"
+            f"Appending to existing file: {output_file} ({len(load_csv(output_file))} rows already present)"
         )
+    rows: dict[float, dict[str, float]] = {}
     # Setup and run MC simulation
     for ebno_dB in ebno_dB_range:
         snr = _snr_key(ebno_dB.item())
         print(f"Simulating Eb/N0 = {ebno_dB} dB")
-        # Seed counters from any existing row at this SNR so new samples
-        # accumulate on top instead of replacing it.
-        prev = stats_by_snr.get(snr)
-        error_stats: dict[str, float] = {
-            "Eb/N0": snr,
-            "WER": 0.0,
-            "BER": 0.0,
-            "CW errors": prev["CW errors"] if prev is not None else 0.0,
-            "Bit errors": prev["Bit errors"] if prev is not None else 0.0,
-            "Total CW": prev["Total CW"] if prev is not None else 0.0,
-        }
-        if prev is not None:
-            log.info(
-                f"Cumulating with existing stats at Eb/N0={snr} dB "
-                f"({int(prev['Total CW']):,} CW already simulated)"
-            )
+        delta = {c: 0.0 for c in COUNTS}
         ds = OnDemandDataset(
             code,
             ebno_dB=ebno_dB,
@@ -188,24 +202,39 @@ def test_model(
         )
         dl = DataLoader(ds, batch_size=None, num_workers=num_workers)
         with torch.no_grad():
-            for batch in tqdm(dl, disable=not show_progress):
+            for b, batch in enumerate(tqdm(dl, disable=not show_progress), 1):
                 ym, syndromes, targets, _ = batch  # per-sample loss weight unused
                 ym_dev = ym.to(device)
                 synd_dev = syndromes.to(device)
-                preds = tts.decode(model, code, ym_dev, synd_dev)  # type: ignore[attr-defined]
+                # Zero-syndrome words skip the model and stay uncorrected
+                # (update_error_stats counts undetectable errors as errors anyway)
+                nz = torch.any(synd_dev < 0, dim=1)
+                preds = torch.zeros(targets.shape, dtype=torch.int8, device=device)
+                if nz.any():
+                    ym_nz, synd_nz = ym_dev[nz], synd_dev[nz]
+                    # The batch size now varies: mark it dynamic so SingleShot compiles one graph
+                    # (TTS strategies derive new tensors and may still recompile a few times)
+                    torch._dynamo.maybe_mark_dynamic(ym_nz, 0)
+                    torch._dynamo.maybe_mark_dynamic(synd_nz, 0)
+                    with torch.autocast(
+                        device.type, torch.bfloat16, enabled=precision == "bf16-mixed"
+                    ):
+                        preds[nz] = tts.decode(model, code, ym_nz, synd_nz)  # type: ignore[attr-defined]
                 update_error_stats(
-                    code, error_space, preds.cpu(), targets, syndromes, error_stats, t
+                    Ginv, error_space, preds, targets.to(device), synd_dev, delta, t
                 )
-        # recompute WER/BER from the cumulative totals
-        error_stats["WER"] = error_stats["CW errors"] * 1.0 / error_stats["Total CW"]
-        error_stats["BER"] = error_stats["Bit errors"] / (
-            error_stats["Total CW"] * code.k
-        )
-        stats_by_snr[snr] = error_stats
-        # print error stats and save to csv after each SNR point
-        print(error_stats)
-        write_csv(list(stats_by_snr.values()), output_file)
-    return list(stats_by_snr.values())
+                # This run's errors only: re-runs and concurrent runs each add >= min_cw_errors
+                if min_cw_errors and delta["CW errors"] >= min_cw_errors:
+                    print(
+                        f"Stopped after {b}/{n_test_batches} batches ({int(delta['CW errors'])} CW errors)"
+                    )
+                    break
+        rows = merge_into_csv(output_file, snr, delta, code.k)
+        # print the cumulative stats at this SNR point
+        print(rows[snr])
+    if not rows and pathlib.Path(output_file).exists():
+        return load_csv(output_file)
+    return [rows[s] for s in sorted(rows)]
 
 
 # conf/ is not part of the installed package; it lives in the project root.
@@ -215,6 +244,12 @@ _conf_dir = os.path.join(os.getcwd(), "conf")
 
 @hydra.main(version_base="1.3", config_path=_conf_dir, config_name="test")
 def _main(cfg: DictConfig) -> None:
+    # With a GPU, CPU work here is only per-batch stats; default threads spin at 700%+
+    if torch.cuda.is_available():
+        torch.set_num_threads(1)
+    # Same rule as sbnd-train (where 0 workers breaks DDP seeding); not needed for correctness here
+    if cfg.num_workers < 1:
+        raise ValueError(f"num_workers must be >= 1, got {cfg.num_workers}")
 
     # Load model first (code path is stored in its hparams)
     model_file = cfg.model
@@ -242,10 +277,13 @@ def _main(cfg: DictConfig) -> None:
     log.info(
         f"Eb/N0 range to simulate: from {ebno_dB_range[0]} to {ebno_dB_range[-1]} by step of {cfg.snr_step} dB ({len(ebno_dB_range)} values)"
     )
-    log.info(
-        f"{cfg.num_batches * cfg.batch_size:,} samples per Eb/N0 value ({cfg.num_batches} batches of {cfg.batch_size} samples per batch)"
-    )
+    budget = f"{cfg.num_batches * cfg.batch_size:,} samples per Eb/N0 value ({cfg.num_batches} batches of {cfg.batch_size} samples per batch)"
+    if cfg.min_cw_errors > 0:
+        budget = f"At most {budget}, stopping early at {cfg.min_cw_errors} CW errors"
+    log.info(budget)
     log.info(f"Dataloading will use {cfg.num_workers} cpus")
+    compiled = getattr(model.decoder, "_compile", False)
+    log.info(f"Precision: {cfg.precision}, torch.compile: {compiled}")
 
     # Resolve HDD correction capability (t=0 if hdd=false)
     t = resolve_hdd_t(model, code, cfg.hdd)
@@ -269,7 +307,12 @@ def _main(cfg: DictConfig) -> None:
 
     # Build the output file path
     pathlib.Path(cfg.output_dir).mkdir(parents=True, exist_ok=True)
-    suffix = tts.suffix + ("-hdd" if cfg.hdd else "")
+    # suffix order: <tts>[-bf16][-hdd]
+    suffix = (
+        tts.suffix
+        + ("-bf16" if cfg.precision == "bf16-mixed" else "")
+        + ("-hdd" if cfg.hdd else "")
+    )
     output_file = cfg.output_dir + "/" + pathlib.Path(model_file).stem + suffix + ".csv"
     log.info(f"Results will be saved to file: {output_file}")
 
@@ -285,6 +328,8 @@ def _main(cfg: DictConfig) -> None:
         test_bs=cfg.batch_size,
         n_test_batches=cfg.num_batches,
         t=t,
+        min_cw_errors=cfg.min_cw_errors,
+        precision=cfg.precision,
     )
 
     # Pretty print results in the terminal

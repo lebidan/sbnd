@@ -246,7 +246,7 @@ decoder:
   compile: true
 ```
 
-> **Note (when compilation happens).** With `compile: true` the decoder is **not** compiled in its constructor — the training runtime compiles it at the start of training (`SBNDLitModule.on_train_start`), deliberately *after* Lightning's `ModelSummary` has printed. Running the summary (which traces the model under `FlopCounterMode`) against an already-`torch.compile`d module makes that instrumented trace the first graph dynamo sees and poisons the compile cache, slowing *every* subsequent training step substantially. Deferring compilation avoids this while keeping the full startup summary (FLOPs and input/output sizes included). Practical consequence: the `Compiling model forward` log line appears after the summary table, and `sbnd-test` runs the model eagerly (compiled state doesn't survive checkpoint save/load, and the test path never re-triggers compilation).
+> **Note (when compilation happens).** With `compile: true` the decoder is **not** compiled in its constructor — the training runtime compiles it at the start of training (`SBNDLitModule.on_train_start`), deliberately *after* Lightning's `ModelSummary` has printed. Running the summary (which traces the model under `FlopCounterMode`) against an already-`torch.compile`d module makes that instrumented trace the first graph dynamo sees and poisons the compile cache, slowing *every* subsequent training step substantially. Deferring compilation avoids this while keeping the full startup summary (FLOPs and input/output sizes included). Practical consequence: the `Compiling model forward` log line appears after the summary table, and compiled state doesn't survive checkpoint save/load, so resumed runs and `sbnd-test` recompile the decoder after loading it.
 
 To implement a new decoder architecture, see [Extending SBND](extending.md).
 
@@ -281,6 +281,10 @@ trainer:
 ```
 
 We recommend `bf16-mixed` precision for faster training with negligible impact on accuracy  , especially with transformer-based models. The only exception is the `StackedGRU` decoder, which we found to require `fp32` precision for both stability and performance. For the full list of supported trainer options, see the [Lightning Trainer documentation](https://lightning.ai/docs/pytorch/stable/common/trainer.html).
+
+**Reproducibility.** Training runs with a fixed `seed` and `trainer.deterministic: true` (the default), so a given config and hardware reproduce the same model. Deterministic mode would also fill every newly allocated buffer as a guard against reads of uninitialized memory; `sbnd-train` turns this fill off (`torch.utils.deterministic.fill_uninitialized_memory = False`) because it costs ~10–20 % per step and runs stay bit-identical without it. In on-demand mode and with data augmentation, the training data also depends on `cpus` (each DataLoader worker has its own RNG stream): reproduce a run with the `cpus` from its saved `.hydra/config.yaml`.
+
+**Resources.** `nodes`, `gpus` (per node) and `cpus` (DataLoader workers per GPU, default 2) set the hardware used. On Slurm, request about 4 CPUs per GPU (e.g. `--cpus-per-gpu=4`), which covers the 2 workers plus the training process; more workers don't speed training up. `cpus` must be at least 1: with no worker, on-demand data would be generated in each rank's main process, whose RNG seed is the same on every DDP rank, so all GPUs would draw identical samples. Workers are not persistent by default; `+data.extra_args.persistent_workers=true` keeps them alive across epochs (ignored for multi-file training, see above), but changes the on-demand data from epoch 2 on.
 
 ## Resuming and continuing training
 
@@ -322,7 +326,7 @@ data:
   test_bs: 4096
 ```
 
-`n_test_samples` is rounded down to the nearest multiple of `test_bs`. In addition, the `PeriodicTest` callback runs a lightweight interim test evaluation every `every_n_epochs` epochs (default: 50) during training, logging results under the `periodic_test/` namespace. This allows monitoring test-set progress without waiting for the full training run to complete. The interval can be changed in the experiment config:
+`n_test_samples` is rounded down to the nearest multiple of `test_bs`. In addition, the `PeriodicTest` callback runs a lightweight interim test evaluation every `every_n_epochs` epochs (default: 50) during training, logging results under the `periodic_test/` namespace (with multiple GPUs, the test words are split across them, so the pooled count still equals `n_test_samples`). This allows monitoring test-set progress without waiting for the full training run to complete. The interval can be changed in the experiment config:
 
 ```yaml
 periodic_test_cb:

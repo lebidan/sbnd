@@ -349,6 +349,9 @@ class OnDemandDataset(Dataset):
         )
 
     def __getitem__(self, idx: int) -> tuple[Tensor, Tensor, Tensor, Tensor]:
+        # idx is otherwise unused; IndexError ends plain `for batch in ds` loops
+        if not 0 <= idx < self.n_batches:
+            raise IndexError(idx)
         if self.train:
             assert self.counts is not None  # set by __init__ when train=True
             y, e, w = generate_random_training_batch(
@@ -446,12 +449,12 @@ class MultiDatasetTrainDataset(Dataset):
     Epoch lifecycle and DDP correctness:
 
         Per-dataset shuffled index lists are derived deterministically from
-        `(base_seed, epoch, k)` at every epoch via `set_epoch(epoch)`. The
-        datamodule calls `set_epoch` from `on_train_epoch_start`, so all DDP
-        ranks compute identical shuffles and Lightning's auto-installed
-        `DistributedSampler` over batch indices `[0, n_batches)` gives each
-        rank a disjoint slice — no row appears in two batches of the same
-        epoch, across all ranks. No custom Sampler is required.
+        `(base_seed, epoch, k)` via `set_epoch(epoch)`, called each epoch (see
+        `SBNDLitModule.on_train_epoch_start` and `SBNDDataModule.train_dataloader`).
+        All DDP ranks compute identical shuffles and Lightning's auto-installed
+        `DistributedSampler` over batch indices `[0, n_batches)` gives each rank
+        a disjoint slice — no row appears in two batches of the same epoch,
+        across all ranks. No custom Sampler is required.
 
         The intra-batch row permutation uses the global RNG (worker-decorrelated
         by `seed_everything(workers=True)`); this affects only display order
@@ -601,15 +604,15 @@ class SBNDDataModule(LightningDataModule):
         Both are avoided by calling
             `lightning.pytorch.seed_everything(seed, workers=True)`
         once before `Trainer.fit` / `Trainer.test`. The `workers=True` flag installs
-        a `worker_init_fn` that reseeds each worker with `base_seed + worker_id`,
-        and Lightning additionally offsets `base_seed` per DDP rank. If no seed is
-        configured at all, decorrelation is still preserved in practice because
-        each DDP rank is launched as a fresh subprocess (independent OS-entropy
-        seed) and PyTorch's default DataLoader assigns each worker a distinct
-        derived seed; only run-to-run reproducibility is lost.
-        The dangerous misuse to avoid is calling `seed_everything(seed)` *without*
-        `workers=True`: ranks are then offset but workers within a rank share an
-        identical RNG stream, producing correlated batches.
+        a `worker_init_fn` that reseeds each worker from `(seed, worker_id, rank)`.
+        Each rank's main process, however, gets the same seed on every rank, so
+        data generated there (`num_workers=0`) would be identical across GPUs:
+        at least one worker is therefore required. If no seed is configured,
+        decorrelation still holds (each DDP rank is a fresh subprocess with an
+        OS-entropy seed); only run-to-run reproducibility is lost.
+        The misuse to avoid is `seed_everything(seed)` *without* `workers=True`:
+        PyTorch's default worker seed (a main-process draw + worker_id) is then
+        the same on every rank, so ranks draw identical samples.
     """
 
     train_ds: Dataset
@@ -647,6 +650,12 @@ class SBNDDataModule(LightningDataModule):
 
         self.code = code
         log.info(f"Instantiating an SBNDDataModule for the {code} code")
+
+        # main-process RNG is not rank-specific (see caveats above)
+        if (extra_args or {}).get("num_workers", 0) < 1:
+            raise ValueError(
+                "At least one DataLoader worker is required (set cpus >= 1)"
+            )
 
         # mode dispatch:
         #   - train_file unset → on-demand
@@ -862,8 +871,8 @@ class SBNDDataModule(LightningDataModule):
                 )
         else:
             # multi-file path: batch-producing dataset; per-epoch shuffles
-            # seeded by (base_seed, epoch) via set_epoch (called from
-            # on_train_epoch_start). DDP correctness is documented in
+            # seeded by (base_seed, epoch) via set_epoch (see class docstring
+            # for who calls it). DDP correctness is documented in
             # MultiDatasetTrainDataset.
             counts = proportional_counts(
                 batch_mix_t, self.train_bs, group_labels=self.train_files
@@ -994,15 +1003,6 @@ class SBNDDataModule(LightningDataModule):
                     f"Created an on-demand test set of {self.n_test_samples} true error patterns at Eb/N0={ebno_dB} dB"
                 )
 
-    def on_train_epoch_start(self) -> None:
-        # Reshuffle per-dataset index lists in multi-file dataset mode. Called
-        # from the main process before the training DataLoader starts iterating;
-        # this guarantees workers spawned for the epoch inherit the new state
-        # via pickle. Single-file and on-demand training don't need this.
-        if isinstance(self.train_ds, MultiDatasetTrainDataset):
-            assert self.trainer is not None
-            self.train_ds.set_epoch(self.trainer.current_epoch)
-
     def _train_extra_args(self) -> dict:
         # strip persistent_workers=True for multi-file dataset training
         if isinstance(self.train_ds, MultiDatasetTrainDataset):
@@ -1012,6 +1012,12 @@ class SBNDDataModule(LightningDataModule):
         return self.extra_args
 
     def train_dataloader(self) -> DataLoader:
+        if isinstance(self.train_ds, MultiDatasetTrainDataset) and self.trainer:
+            # first-epoch iterator is built before on_train_epoch_start runs; use
+            # `processed` (as Lightning does for samplers): on resume from an
+            # end-of-epoch ckpt, current_epoch still lags by one at this point
+            epoch = self.trainer.fit_loop.epoch_progress.current.processed  # type: ignore[attr-defined]
+            self.train_ds.set_epoch(epoch)
         if isinstance(self.train_ds, MultiDatasetTrainDataset) or self.on_demand:
             # batch-producing datasets → automatic batching disabled
             return DataLoader(
