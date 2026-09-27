@@ -449,14 +449,12 @@ class MultiDatasetTrainDataset(Dataset):
     Epoch lifecycle and DDP correctness:
 
         Per-dataset shuffled index lists are derived deterministically from
-        `(base_seed, epoch, k)` at every epoch via `set_epoch(epoch)`, called
-        by `SBNDLitModule.on_train_epoch_start` (Lightning doesn't run that hook
-        on datamodules) and by `SBNDDataModule.train_dataloader` for the first
-        (possibly resumed) epoch. All DDP ranks compute identical shuffles
-        and Lightning's auto-installed `DistributedSampler` over batch indices
-        `[0, n_batches)` gives each rank a disjoint slice — no row appears in
-        two batches of the same epoch, across all ranks. No custom Sampler is
-        required.
+        `(base_seed, epoch, k)` via `set_epoch(epoch)`, called each epoch (see
+        `SBNDLitModule.on_train_epoch_start` and `SBNDDataModule.train_dataloader`).
+        All DDP ranks compute identical shuffles and Lightning's auto-installed
+        `DistributedSampler` over batch indices `[0, n_batches)` gives each rank
+        a disjoint slice — no row appears in two batches of the same epoch,
+        across all ranks. No custom Sampler is required.
 
         The intra-batch row permutation uses the global RNG (worker-decorrelated
         by `seed_everything(workers=True)`); this affects only display order

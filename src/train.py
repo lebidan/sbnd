@@ -97,8 +97,7 @@ class PeriodicTest(Callback):
                         trainer.strategy.reduce(x, reduce_op="sum")
                         for x in (loss_sum, acc_sum, torch.tensor(total, device=device))
                     )
-                    # keep dividing by a Python int: CUDA divides by a scalar via its
-                    # reciprocal, so a tensor divisor would change the last bit
+                    # divide by a Python int: a tensor divisor changes the last bit on CUDA
                     total = int(n)
                     if total == 0:
                         continue

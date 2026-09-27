@@ -14,6 +14,9 @@
 # combined.
 #
 # All three variants share the same `decode/validate/name/suffix` protocol
+#
+# Gotcha: under bf16 autocast the GF(2) syndrome matmuls below run in bf16, exact
+# only while each parity check covers <= 256 bits (fine for shipped codes, n <= 128).
 
 from typing import Callable
 

@@ -90,7 +90,7 @@ def merge_into_csv(
             row[c] += delta[c]
         row["WER"] = row["CW errors"] / row["Total CW"]
         row["BER"] = row["Bit errors"] / (row["Total CW"] * k)
-        tmp = path + ".tmp"  # safe to share: only written under the lock
+        tmp = f"{path}.{os.getpid()}.tmp"  # per-process: flock is node-local on Lustre
         write_csv([rows[s] for s in sorted(rows)], tmp)
         os.replace(tmp, path)  # atomic: a crash mid-write never truncates the CSV
     return rows
@@ -127,7 +127,8 @@ def update_error_stats(
         missed = torch.all(syndromes > 0, dim=1) | (diff_fer.sum(dim=1) > t)
         counted &= missed
     cw = (diff_fer.any(dim=1) & counted).sum()
-    bits = (diff_ber.sum(dim=1) * counted).sum()
+    # int64 sum: a float32 one is exact only up to 2^24 bit errors per batch
+    bits = (diff_ber.sum(dim=1, dtype=torch.int64) * counted).sum()
     cw, bits = torch.stack([cw, bits]).tolist()  # one GPU sync, no boolean indexing
     stats["Total CW"] += targets.size(0)
     stats["CW errors"] += cw
@@ -158,7 +159,7 @@ def test_model(
     tts: object | None = None,
     test_bs: int = 4096,
     n_test_batches: int = 512,
-    num_workers: int = 16,
+    num_workers: int = 2,
     show_progress: bool = True,
     t: int = 0,
     min_cw_errors: int = 0,
@@ -174,7 +175,7 @@ def test_model(
         torch.set_float32_matmul_precision("high")
     model = model.to(device)
     model.eval()
-    # After any model summary / FLOP count (sbnd-test runs none); no-op if compile=False
+    # compiled state isn't pickled: recompile after loading (no-op if compile=False)
     if hasattr(model.decoder, "_maybe_compile"):
         model.decoder._maybe_compile()  # type: ignore[operator]
     error_space = getattr(model.decoder, "error_space", "codeword")
@@ -211,7 +212,8 @@ def test_model(
                 preds = torch.zeros(targets.shape, dtype=torch.int8, device=device)
                 if nz.any():
                     ym_nz, synd_nz = ym_dev[nz], synd_dev[nz]
-                    # The batch size now varies: compile one dynamic-shape graph up front
+                    # The batch size now varies: mark it dynamic so SingleShot compiles one graph
+                    # (TTS strategies derive new tensors and may still recompile a few times)
                     torch._dynamo.maybe_mark_dynamic(ym_nz, 0)
                     torch._dynamo.maybe_mark_dynamic(synd_nz, 0)
                     with torch.autocast(
@@ -242,8 +244,10 @@ _conf_dir = os.path.join(os.getcwd(), "conf")
 
 @hydra.main(version_base="1.3", config_path=_conf_dir, config_name="test")
 def _main(cfg: DictConfig) -> None:
-    # CPU work here is only per-batch stats; default threads spin at 700%+ while GPU-bound
-    torch.set_num_threads(1)
+    # With a GPU, CPU work here is only per-batch stats; default threads spin at 700%+
+    if torch.cuda.is_available():
+        torch.set_num_threads(1)
+    # Same rule as sbnd-train (where 0 workers breaks DDP seeding); not needed for correctness here
     if cfg.num_workers < 1:
         raise ValueError(f"num_workers must be >= 1, got {cfg.num_workers}")
 

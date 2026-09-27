@@ -64,7 +64,7 @@ The active TTS strategy, the precision and the HDD flag are reflected in the CSV
 | `batch_size` | 4096 | Test batch size |
 | `num_batches` | 1024 | Number of batches per SNR point (a maximum when `min_cw_errors > 0`) |
 | `min_cw_errors` | 500 | Stop an SNR point early once this run has seen this many codeword errors; `0` = always run `num_batches` — see below |
-| `num_workers` | 2 | Number of workers for dataloading (must be >= 1) |
+| `num_workers` | 2 | Number of workers for dataloading (must be >= 1, the same rule as for training) |
 | `precision` | `32-true` | `32-true` (fp32) or `bf16-mixed` (bf16 autocast, adds `-bf16` to the CSV name) — see below |
 | `hdd` | `false` | Enable hard-decision decoding emulation — see §2 |
 | `tts` | `SingleShotDecoder` | Decoding strategy — see §3 |
@@ -76,7 +76,7 @@ The active TTS strategy, the precision and the HDD flag are reflected in the CSV
 
 **Zero-syndrome words.** Received words with a zero syndrome are not fed to the model (at high SNR they are most of the batch): their decoded word is the hard decision, left uncorrected. They are still counted in `Total CW`; those with a nonzero error pattern (undetectable errors, the error being a codeword) are counted as codeword errors, and their bit errors are the hard-decision ones.
 
-**CPU threads.** `sbnd-test` deliberately runs its main process single-threaded on the CPU (its CPU work is only per-batch error counting), so setting `OMP_NUM_THREADS` is not needed.
+**CPU threads.** `sbnd-test` deliberately runs its main process single-threaded on the CPU (its CPU work is only per-batch error counting), so setting `OMP_NUM_THREADS` is not needed. On Slurm, request `num_workers + 1` CPUs (3 by default, e.g. `--cpus-per-task=3`): the cluster bills allocated CPUs, so the savings only show up if the allocation shrinks too. Without a GPU the model runs on the CPU and all threads are kept.
 
 ## 2. Hard-decision decoding emulation
 
