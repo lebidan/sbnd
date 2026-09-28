@@ -13,6 +13,7 @@ This document describes how to evaluate a trained SBND model with `sbnd-test`. I
 3. [Test-time scaling](#3-test-time-scaling)
    - [Self-boosting](#self-boosting)
    - [Test-time augmentation](#test-time-augmentation)
+   - [AfterBurner decoding](#afterburner-decoding)
    - [Combining TTS with HDD](#combining-tts-with-hdd)
 
 ## 1. Basic evaluation
@@ -53,7 +54,7 @@ Results are saved to a CSV file named after the checkpoint, under the output dir
 
 Rows are written sorted by Eb/N0. Each run only adds its own counts to what is on disk, under an exclusive file lock, so several `sbnd-test` processes can write the same output file concurrently (e.g. one per GPU, on the same or different SNR points) and their counts add up. The lock is a `<csv>.lock` sidecar file created next to the CSV. **Caveat:** on cluster filesystems where `flock` is node-local (e.g. Lustre mounted with `localflock`), concurrent runs are only safe when they run on the same node.
 
-The active TTS strategy, the precision and the HDD flag are reflected in the CSV filename suffix, in the order `<model>[<tts>][-bf16][-hdd].csv`, so that different configurations of the same checkpoint do not overwrite one another (e.g. `<model>.csv`, `<model>-hdd.csv`, `<model>-sb5.csv`, `<model>-bf16.csv`, `<model>-tta4-bf16-hdd.csv`).
+The active TTS strategy, the precision and the HDD flag are reflected in the CSV filename suffix, in the order `<model>[<tts>][-bf16][-hdd].csv`, so that different configurations of the same checkpoint do not overwrite one another (e.g. `<model>.csv`, `<model>-hdd.csv`, `<model>-sb5.csv`, `<model>-ab6.csv`, `<model>-bf16.csv`, `<model>-tta4-bf16-hdd.csv`).
 
 ### Options
 
@@ -95,9 +96,9 @@ Output: results are written to `<model>-hdd.csv`. HDD is orthogonal to TTS and m
 
 ## 3. Test-time scaling
 
-Beyond the standard decoding mode (one forward pass per sample, the default), `sbnd-test` supports two test-time scaling (TTS) variants that exchange additional inference compute for lower error rates. The two variants are complementary: **self-boosting** is a sequential strategy in which the model iterates over its own predictions, while **test-time augmentation** is a parallel strategy in which the model is run on multiple equivalent views of each received word obtained via code automorphisms. Both are implemented in [`src/tts.py`](../src/tts.py).
+Beyond the standard decoding mode (one forward pass per sample, the default), `sbnd-test` supports three test-time scaling (TTS) variants that exchange additional inference compute for lower error rates. **Self-boosting** is a sequential strategy in which the model iterates over its own predictions, **test-time augmentation** is a parallel strategy in which the model is run on multiple equivalent views of each received word obtained via code automorphisms, and **AfterBurner decoding** is a list strategy in which the model re-decodes several bit-flip hypotheses, with saturated reliabilities, on the least reliable positions. All three are implemented in [`src/tts.py`](../src/tts.py).
 
-Both TTS variants require a model trained in `error_space=codeword`, since they rely on the syndrome check `synd(ê) ≡ s_chan` to decide either when to terminate the loop (self-boosting) or which permuted prediction to keep (TTA). The active strategy is selected through the `tts:` block in the evaluation config, and Hydra-instantiated through `_target_`. The default is the no-TTS baseline, defined in [`conf/test.yaml`](../conf/test.yaml) as `_target_: sbnd.tts.SingleShotDecoder`.
+All TTS variants require a model trained in `error_space=codeword`, since they rely on the syndrome check `synd(ê) ≡ s_chan` to decide either when to terminate the loop (self-boosting), which permuted prediction to keep (TTA), or which hypotheses are valid candidates (AfterBurner). The active strategy is selected through the `tts:` block in the evaluation config, and Hydra-instantiated through `_target_`. The default is the no-TTS baseline, defined in [`conf/test.yaml`](../conf/test.yaml) as `_target_: sbnd.tts.SingleShotDecoder`.
 
 ### Self-boosting
 
@@ -153,9 +154,30 @@ sbnd-test /path/to/my-model.ckpt eval=bch-31-21 \
 
 Output: results are written to `<model>-tta<num_perms>.csv` (e.g. `<model>-tta4.csv`).
 
+### AfterBurner decoding
+
+In AfterBurner decoding (list TTS, [`AfterBurnerDecoder`](../src/tts.py)), the model first decodes each received word once. Words whose prediction passes the syndrome check are kept as-is. For the others, the `num_flips` = p least reliable positions (smallest |y|) are selected and all 2^p flip patterns f over them (f = 0 included) are tested: for each pattern, the model is run on the syndrome of the flipped word, with the reliabilities of all p test positions set to 1.0 (every hypothesised bit value is frozen, flipped or not), and the candidate error pattern is the model's hard decision XOR f. Among the candidates that pass the syndrome check, the one minimising the ML metric Σ |y_i|·ê_i is kept; if none passes, the first-pass prediction is returned. This is the AfterBurner scheme of [S. Scholl, P. Schläfer, N. Wehn, *Saturated Min-Sum Decoding: An "Afterburner" for LDPC Decoder Hardware*, DATE 2016](https://ieeexplore.ieee.org/document/7459497), which runs after LDPC decoding fails, saturates the reliabilities of the least reliable positions in a Chase-like enumeration of hypotheses, and runs another LDPC decoding round on each perturbed word; here BP is replaced by the SBND model.
+
+Since the hypotheses are only tested on detected failures, the cost is about 1 + FER·2^p forward passes per word, which falls quickly as the SNR increases. The hypotheses are batched and run in slices no larger than the evaluation batch, so peak memory stays that of a regular batch.
+
+```yaml
+tts:
+  _target_: sbnd.tts.AfterBurnerDecoder
+  num_flips: 6
+```
+
+```
+sbnd-test /path/to/my-model.ckpt eval=ldpc-rptu-96-48 \
+  tts._target_=sbnd.tts.AfterBurnerDecoder +tts.num_flips=6
+```
+
+Other rules for setting the reliabilities of the test positions were investigated on LDPC RPTU(96,48) with rECCT A1 (64 epochs), at 3 dB, over 2^20 words (53,304 first-pass failures, FER 5.08e-2 without AfterBurner). With p = 6, leaving the reliabilities unchanged gives FER 3.33e-2, setting only the flipped bits to 1.0 gives 2.00e-2, and setting all p test positions to 1.0 gives 8.65e-3. The last rule is about 0.4 dB better than flipped-only, and is the one implemented.
+
+Output: results are written to `<model>-ab<num_flips>.csv` (e.g. `<model>-ab6.csv`).
+
 ### Combining TTS with HDD
 
-The HDD flag is independent of the TTS strategy: it acts as a post-processing filter on the error counts and may be combined with any TTS variant. The two suffixes accumulate in the output filename, e.g. `<model>-sb5-hdd.csv` or `<model>-tta4-hdd.csv`.
+The HDD flag is independent of the TTS strategy: it acts as a post-processing filter on the error counts and may be combined with any TTS variant. The two suffixes accumulate in the output filename, e.g. `<model>-sb5-hdd.csv`, `<model>-tta4-hdd.csv` or `<model>-ab6-hdd.csv`.
 
 ```
 sbnd-test /path/to/my-model.ckpt eval=bch-31-21 \

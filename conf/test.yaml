@@ -78,5 +78,10 @@ hdd: false
 #     transform:
 #       _partial_: true
 #       _target_: sbnd.transforms.BCHPerms
+#
+#   # AfterBurner (list TTS over the least reliable bits, on failed frames only)
+#   tts:
+#     _target_: sbnd.tts.AfterBurnerDecoder
+#     num_flips: 6
 tts:
   _target_: sbnd.tts.SingleShotDecoder
