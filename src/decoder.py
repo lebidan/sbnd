@@ -59,7 +59,23 @@ class BaseDecoder(nn.Module, ABC):
     self.example_input_array : tuple[Tensor, Tensor], dummy `(ym, s)` inputs
                                used by Lightning for shape inference in the
                                model summary.
+
+    Eval-time iteration override (iterative decoders only)
+    -------------------------------------------------------
+    A decoder that loops one tied block opts in by setting the class attribute
+    `_iters_attr` to the name of its iteration-count attribute. `sbnd-test` then
+    calls `configure_eval(n_iters, code)`; while `self._eval_active` holds, the
+    subclass's forward stacks the readout of every iteration into `(T, B, n)`
+    logits and returns `self._select_iteration(logits, s)`.
     """
+
+    # Class-level defaults: checkpoints pickle the whole decoder, so `__init__`
+    # does not rerun on load and older pickles lack these instance attributes.
+    _iters_attr: str | None = None  # iteration-count attribute; None = not iterative
+    _trained_iters: int | None = None  # set by configure_eval; None = no override
+    # float32 (n, m) parity-check matrix, registered by configure_eval. Annotation
+    # only: a class-level value would make register_buffer refuse the name.
+    eval_Ht: Tensor
 
     def __init__(
         self,
@@ -90,6 +106,57 @@ class BaseDecoder(nn.Module, ABC):
         if getattr(self, "_compile", False) and self._compiled_call_impl is None:
             log.info("Compiling model forward")
             self.compile()
+
+    def configure_eval(self, n_iters: int, code: LinearCode) -> None:
+        """Evaluate at `n_iters` iterations, with syndrome-based early exit.
+
+        Each frame outputs the readout of the first iteration whose hard decision
+        matches the syndrome; frames never matching fall back to the readout at
+        min(n_iters, trained count). `code` is the one the model was trained on.
+        """
+        name = type(self).__name__
+        if self._iters_attr is None:
+            raise ValueError(
+                f"n_iters override is not supported by {name}: not an iterative decoder"
+            )
+        if self.error_space != "codeword":
+            raise ValueError(
+                "n_iters override needs error_space=codeword (the early exit checks "
+                f"the syndrome), got {self.error_space!r}"
+            )
+        if n_iters < 1:
+            raise ValueError(f"n_iters must be >= 1, got {n_iters}")
+        if self._trained_iters is None:  # a second call must not overwrite it
+            self._trained_iters = int(getattr(self, self._iters_attr))
+        log.info(
+            f"{name}: trained with {self._iters_attr}={self._trained_iters}, "
+            f"evaluating with {n_iters} and syndrome early exit"
+        )
+        setattr(self, self._iters_attr, n_iters)
+        device = next(self.parameters()).device
+        self.register_buffer(
+            "eval_Ht", code.Ht.to(device, torch.float32), persistent=False
+        )
+
+    @property
+    def _eval_active(self) -> bool:
+        return self._trained_iters is not None and not self.training
+
+    def _select_iteration(self, logits: Tensor, s: Tensor) -> Tensor:
+        """Pick one readout per frame out of `logits` (T, B, n), given bipolar `s` (B, m).
+
+        First iteration whose hard decision (logit < 0 means bit in error) has
+        syndrome `s`; else iteration min(T, trained count). Masked selection, no
+        data-dependent control flow, so it compiles with fullgraph=True.
+        """
+        # GF(2) product in fp32: bf16 is only exact up to 256 bits per check
+        with torch.autocast(logits.device.type, enabled=False):
+            synd = 1 - 2 * (((logits < 0).float() @ self.eval_Ht) % 2)
+        valid = (synd == s).all(dim=-1)  # (T, B)
+        fallback = min(logits.shape[0], self._trained_iters or 0) - 1
+        # argmax returns the first maximal index, i.e. the first valid iteration
+        t = torch.where(valid.any(dim=0), valid.int().argmax(dim=0), fallback)
+        return logits.take_along_dim(t[None, :, None], dim=0).squeeze(0)
 
     @abstractmethod
     def forward(self, ym: Tensor, s: Tensor) -> Tensor: ...

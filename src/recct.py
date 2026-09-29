@@ -196,6 +196,8 @@ class DecoderLayer(nn.Module):
 
 
 class RECCT(BaseDecoder):
+    _iters_attr = "n_iters"  # opts in to BaseDecoder.configure_eval
+
     def __init__(
         self,
         code: LinearCode,
@@ -313,6 +315,19 @@ class RECCT(BaseDecoder):
         # generate the embedding vectors from the input
         x = self.embed(ym, s)
 
+        # eval-time n_iters override: every iteration of the last layer's loop is a
+        # candidate answer (earlier layers' states are not final answers)
+        if self._eval_active:
+            *first, last = self.encoding_layers
+            for layer in first:
+                for _ in range(self.n_iters):
+                    x = layer(x, self.mask)
+            outs = []
+            for _ in range(self.n_iters):
+                x = last(x, self.mask)
+                outs.append(self.decode(x))
+            return self._select_iteration(torch.stack(outs), s)
+
         # iterate over the base encoder layers to refine the latent representation of the error pattern
         for layer in self.encoding_layers:
             for _ in range(self.n_iters):
@@ -323,4 +338,64 @@ class RECCT(BaseDecoder):
 
 
 if __name__ == "__main__":
-    pass
+    # Self-check for the eval-time n_iters override: python -m sbnd.recct
+    from .codes import LinearCode
+
+    code = LinearCode("data/codes/bch.31.21.mat")
+    torch.manual_seed(0)
+    dec = RECCT(code, embed_dim=32, n_heads=4, n_layers=2, n_iters=3).eval()
+    B = 64
+    ym, s = torch.rand(B, code.n), 1 - 2 * torch.randint(0, 2, (B, code.m)).float()
+    with torch.no_grad():
+        ref = dec(ym, s)
+
+        # 1. helper: first valid iteration, else the trained-T readout (min(T', T))
+        dec.configure_eval(5, code)
+        assert dec._trained_iters == 3 and dec.n_iters == 5
+        e = torch.randint(0, 2, (B, code.n))
+        s_e = 1 - 2 * ((e.float() @ code.Ht.float()) % 2)
+        good = 1 - 2 * e.float()  # hard decision e: syndrome-valid
+        logits = good.repeat(5, 1, 1)
+        logits[..., 0] *= -1  # one flipped bit: invalid everywhere...
+        logits[3, :20], logits[1, :10] = good[:20], good[:10]  # ...but here
+        logits *= torch.arange(1.0, 6.0)[:, None, None]  # tell iterations apart
+        pick = dec._select_iteration(logits, s_e)
+        assert torch.equal(pick[:10], logits[1, :10]), "first valid not picked"
+        assert torch.equal(pick[10:20], logits[3, 10:20])
+        assert torch.equal(pick[20:], logits[2, 20:]), "fallback != trained-T readout"
+        dec.n_iters = 2  # T' < T_train: fallback is the last iteration
+        assert torch.equal(dec._select_iteration(logits[:2], s_e)[20:], logits[1, 20:])
+
+        # 2. override at T' = T_train on a random model: selected frames are either
+        #    syndrome-valid or equal to the plain forward's output
+        dec.configure_eval(3, code)
+        assert dec._trained_iters == 3, "second call overwrote the trained count"
+        out = dec(ym, s)
+        ok = (1 - 2 * (((out < 0).float() @ code.Ht.float()) % 2) == s).all(-1)
+        assert torch.equal(out[~ok], ref[~ok])
+
+        # 3. no override: output is the plain forward, bit for bit; train mode too
+        plain = RECCT(code, embed_dim=32, n_heads=4, n_layers=2, n_iters=3).eval()
+        plain.load_state_dict(dec.state_dict())
+        assert torch.equal(plain(ym, s), ref)
+        dec.train()
+        assert not dec._eval_active
+        dec.eval()
+
+        # 4. compiled forward with the override active, also under bf16 autocast
+        dec.configure_eval(6, code)
+        eager = dec(ym, s)
+        comp = torch.compile(dec, fullgraph=True)
+        assert torch.allclose(comp(ym, s), eager, atol=1e-5)
+        with torch.autocast("cpu", torch.bfloat16):
+            comp(ym, s)
+
+        # 5. non-codeword decoders are refused
+        try:
+            RECCT(code, embed_dim=32, n_heads=4, error_space="message").configure_eval(
+                4, code
+            )
+            raise AssertionError("message space accepted")
+        except ValueError:
+            pass
+    print("all checks passed")

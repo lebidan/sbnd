@@ -1,6 +1,6 @@
 # Evaluating a model
 
-This document describes how to evaluate a trained SBND model with `sbnd-test`. It is organized in three sections: the basic Monte-Carlo SNR sweep to measure WER and BER, the optional hard-decision decoding (HDD) emulation used as a cheap post-filter, and the test-time scaling (TTS) variants that trade extra inference compute for lower error rates.
+This document describes how to evaluate a trained SBND model with `sbnd-test`. It is organized in four sections: the basic Monte-Carlo SNR sweep to measure WER and BER, the optional hard-decision decoding (HDD) emulation used as a cheap post-filter, the test-time scaling (TTS) variants that trade extra inference compute for lower error rates, and the iteration-count override for iterative decoders.
 
 **See also:** [README](../README.md#-getting-started) · [Training a model](training.md) · [Extending SBND](extending.md) · [Experiments](experiments.md)
 
@@ -15,6 +15,7 @@ This document describes how to evaluate a trained SBND model with `sbnd-test`. I
    - [Test-time augmentation](#test-time-augmentation)
    - [AfterBurner decoding](#afterburner-decoding)
    - [Combining TTS with HDD](#combining-tts-with-hdd)
+4. [Overriding the iteration count](#4-overriding-the-iteration-count)
 
 ## 1. Basic evaluation
 
@@ -54,7 +55,7 @@ Results are saved to a CSV file named after the checkpoint, under the output dir
 
 Rows are written sorted by Eb/N0. Each run only adds its own counts to what is on disk, under an exclusive file lock, so several `sbnd-test` processes can write the same output file concurrently (e.g. one per GPU, on the same or different SNR points) and their counts add up. The lock is a `<csv>.lock` sidecar file created next to the CSV. **Caveat:** on cluster filesystems where `flock` is node-local (e.g. Lustre mounted with `localflock`), concurrent runs are only safe when they run on the same node.
 
-The active TTS strategy, the precision and the HDD flag are reflected in the CSV filename suffix, in the order `<model>[<tts>][-bf16][-hdd].csv`, so that different configurations of the same checkpoint do not overwrite one another (e.g. `<model>.csv`, `<model>-hdd.csv`, `<model>-sb5.csv`, `<model>-ab6.csv`, `<model>-bf16.csv`, `<model>-tta4-bf16-hdd.csv`).
+The active TTS strategy, an `n_iters` override, the precision and the HDD flag are reflected in the CSV filename suffix, in the order `<model>[<tts>][-it<n>][-bf16][-hdd].csv`, so that different configurations of the same checkpoint do not overwrite one another (e.g. `<model>.csv`, `<model>-hdd.csv`, `<model>-sb5.csv`, `<model>-ab6.csv`, `<model>-bf16.csv`, `<model>-it20-bf16.csv`, `<model>-tta4-bf16-hdd.csv`).
 
 ### Options
 
@@ -67,6 +68,7 @@ The active TTS strategy, the precision and the HDD flag are reflected in the CSV
 | `min_cw_errors` | 500 | Stop an SNR point early once this run has seen this many codeword errors; `0` = always run `num_batches` — see below |
 | `num_workers` | 2 | Number of workers for dataloading (must be >= 1, the same rule as for training) |
 | `precision` | `32-true` | `32-true` (fp32) or `bf16-mixed` (bf16 autocast, adds `-bf16` to the CSV name) — see below |
+| `n_iters` | `null` | Evaluate an iterative decoder at this many iterations, with syndrome-based early exit (adds `-it<n>` to the CSV name) — see §4 |
 | `hdd` | `false` | Enable hard-decision decoding emulation — see §2 |
 | `tts` | `SingleShotDecoder` | Decoding strategy — see §3 |
 | `output_dir` | `./log/test` | Output directory for the results CSV |
@@ -188,3 +190,25 @@ sbnd-test /path/to/my-model.ckpt eval=bch-31-21 \
 ### Practical considerations
 
 The self-boosting and TTA strategies have been compared in the [PhD thesis of A. Ismail, Chap. 4.2](https://theses.fr/2025IMTA0515). Both rapidly increase the inference cost and show diminishing returns as the underlying model gets better. Whenever applicable, hard-decision decoding emulation (the `hdd` flag, §2) remains the most cost-efficient and effective strategy to get an extra boost in performance at inference time.
+
+## 4. Overriding the iteration count
+
+Iterative decoders loop one weight-tied block a fixed number of times `T_train` during training: [`RECCT`](../src/recct.py) (its `n_iters`) and [`StackedGRU`](../src/gru.py) (its `n_steps`). Passing `n_iters` to `sbnd-test` evaluates the trained model at any other count `T'`, lower or higher, without retraining:
+
+```
+sbnd-test model=/path/to/my-model.ckpt n_iters=20
+```
+
+**Early exit on the syndrome is always on with this option.** Every frame runs all `T'` iterations, and the model's readout is applied after each one. The output of a frame is the readout of the first iteration whose hard decision satisfies the syndrome (its syndrome equals the channel syndrome). A frame that never satisfies it gets the readout at iteration `min(T', T_train)`, not the last one: that answer is a frame error either way, but running past the trained count can add bit errors, so this fallback keeps the BER from getting worse too.
+
+At `T' >= T_train`, FER and BER therefore cannot get worse than evaluating at the trained count. At `T' < T_train` they can, since fewer iterations are run. `n_iters=<T_train>` gives the early-exit result at the trained count.
+
+Without `n_iters`, the decoder runs its trained count with no early exit, exactly as before this option existed, so older CSVs stay reproducible.
+
+Results go to a `-it<n>`-suffixed CSV (e.g. `<model>-it20.csv`, early exit implied), so a sweep over several counts does not merge rows into one file. The option combines with TTS, HDD and `precision`.
+
+**Caveats:**
+
+- The readout was only trained on the state reached after `T_train` iterations. Its answers at other iterations can be poor, and early exit only accepts the ones that satisfy the syndrome.
+- The option only applies to `RECCT` and `StackedGRU` models trained with `error_space=codeword` (the early exit needs a codeword-space prediction to check the syndrome). Any other decoder or a `message`-space model raises an error.
+- For a multi-layer `RECCT` (`n_layers > 1`), `n_iters` sets the loop count of every layer, and only the iterations of the last layer's loop are candidates: the earlier layers' states are not final answers.

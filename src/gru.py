@@ -10,6 +10,7 @@ log = get_rank_zero_logger(__name__)
 
 
 class StackedGRU(BaseDecoder):
+    _iters_attr = "n_steps"  # opts in to BaseDecoder.configure_eval
 
     def __init__(
         self,
@@ -93,9 +94,37 @@ class StackedGRU(BaseDecoder):
         # run gru on all time steps at once (faster than one step at a time)
         out = self.gru(x)[0]  # (B, L, H)
 
+        # eval-time n_steps override: the readout of every step is a candidate
+        if self._eval_active:
+            return self._select_iteration(self.to_logits(out).transpose(0, 1), s)
+
         # project the hidden state at the last time step to obtain the error pattern logits
         return self.to_logits(out[:, -1])
 
 
 if __name__ == "__main__":
-    pass
+    # Self-check for the eval-time n_steps override: python -m sbnd.gru
+    from .codes import LinearCode
+
+    torch.manual_seed(0)
+    code = LinearCode("data/codes/bch.31.21.mat")
+    ym, s = torch.rand(64, code.n), 1 - 2 * torch.randint(0, 2, (64, code.m)).float()
+    with torch.no_grad():
+        for zp in (False, True):
+            dec = StackedGRU(code, 32, n_layers=2, n_steps=4, zero_padding=zp).eval()
+            ref = dec(ym, s)
+            dec.configure_eval(7, code)
+            # the helper sees the readout of every step, in order
+            x = torch.cat((ym, s), 1)
+            x = (
+                x[:, None].expand(-1, 7, -1)
+                if not zp
+                else torch.cat((x[:, None], torch.zeros(64, 6, x.size(1))), 1)
+            )
+            steps = dec.to_logits(dec.gru(x)[0]).transpose(0, 1)
+            assert torch.equal(dec(ym, s), dec._select_iteration(steps, s))
+            # frames never valid get step 4's readout, which is the plain forward's
+            ok = (1 - 2 * (((steps < 0).float() @ code.Ht.float()) % 2) == s).all(-1)
+            never = ~ok.any(0)
+            assert never.any() and torch.allclose(dec(ym, s)[never], ref[never])
+    print("all checks passed")
