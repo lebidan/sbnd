@@ -13,7 +13,12 @@
 # under multiple code automorphisms in parallel and their predictions are
 # combined.
 #
-# All three variants share the same `decode/validate/name/suffix` protocol
+# `AfterBurnerDecoder` is a list-decoding variant: on frames the model fails to
+# decode, the least reliable bits are flipped in all 2^p combinations with
+# saturated reliabilities, each hypothesis is re-decoded, and the best
+# syndrome-valid candidate is kept.
+#
+# All four variants share the same `decode/validate/name/suffix` protocol
 #
 # Gotcha: under bf16 autocast the GF(2) syndrome matmuls below run in bf16, exact
 # only while each parity check covers <= 256 bits (fine for shipped codes, n <= 128).
@@ -228,6 +233,88 @@ class TTADecoder:
         # average logits where decoding has failed for all permutations
         logits[-1, needs_update] = logits[:, needs_update].mean(dim=0)
         return bipolar_to_bit(logits[-1])
+
+
+class AfterBurnerDecoder:
+    """AfterBurner decoding (list TTS): re-decode saturated flip hypotheses on failures.
+
+    First pass: single shot. Frames whose prediction passes the syndrome
+    check are returned as-is. For the others, take the p = `num_flips` least
+    reliable positions (smallest ym) and enumerate all 2^p flip patterns f on
+    them (f=0 included). Each pattern is decoded as model(ym', s'), with the
+    syndrome s' of the flipped word and ym' = ym with all p test positions set
+    to 1.0 (every hypothesised bit is frozen, flipped or not), and the
+    candidate is the hard decision XOR f. Among the syndrome-valid candidates,
+    keep the one minimising sum(ym * e) (ML metric up to a per-frame scale);
+    if none is valid, keep the first-pass prediction.
+
+    The failed frames x 2^p patterns are run in slices of at most len(ym)
+    words, so peak memory stays that of a regular test batch.
+
+    Only valid for models trained with error_space=codeword (the syndrome
+    check requires predictions in codeword space).
+    """
+
+    name: str = "afterburner"
+
+    def __init__(self, num_flips: int = 6) -> None:
+        if num_flips < 1:
+            raise ValueError(f"num_flips must be >= 1 (got {num_flips})")
+        self.num_flips = num_flips
+
+    @property
+    def suffix(self) -> str:
+        return f"-ab{self.num_flips}"
+
+    def validate(self, model: SBNDLitModule, code: LinearCode) -> None:
+        es = getattr(model.decoder, "error_space", "codeword")
+        if es != "codeword":
+            raise ValueError(
+                "AfterBurnerDecoder requires a model trained with error_space=codeword "
+                f"(got error_space={es!r})"
+            )
+
+    def decode(
+        self,
+        model: SBNDLitModule,
+        code: LinearCode,
+        ym: Tensor,
+        syndromes: Tensor,
+    ) -> Tensor:
+        Ht = code.Ht.to(device=ym.device, dtype=torch.float32)
+        preds = bipolar_to_bit(model(ym, syndromes))
+        fail = torch.any((1 - 2 * ((preds.float() @ Ht) % 2)) * syndromes < 0, dim=-1)
+        if not fail.any():
+            return preds
+
+        yf, sf = ym[fail], syndromes[fail]
+        (B, n), p, P = yf.shape, self.num_flips, 2**self.num_flips
+        idx = yf.argsort(dim=-1)[:, :p]
+        k = torch.arange(P, device=ym.device)
+        bits = ((k[:, None] >> torch.arange(p, device=ym.device)) & 1).float()
+        f = torch.zeros(B, P, n, device=ym.device).scatter_(
+            -1, idx[:, None].expand(B, P, p), bits.expand(B, P, p)
+        )
+        s2 = (sf[:, None] * (1 - 2 * ((f @ Ht) % 2))).reshape(B * P, -1)
+        ym2 = yf.scatter(-1, idx, 1.0)[:, None].expand(B, P, n).reshape(B * P, n)
+        f = f.reshape(B * P, n).to(torch.int8)
+
+        cands = torch.empty_like(f)
+        for i in range(0, B * P, len(ym)):
+            ym_sl, s_sl = ym2[i : i + len(ym)], s2[i : i + len(ym)]
+            torch._dynamo.maybe_mark_dynamic(ym_sl, 0)
+            torch._dynamo.maybe_mark_dynamic(s_sl, 0)
+            cands[i : i + len(ym)] = bipolar_to_bit(model(ym_sl, s_sl))
+        cands = (cands ^ f).reshape(B, P, n)
+
+        cand_synd = 1 - 2 * ((cands.float() @ Ht) % 2)
+        valid = torch.all(cand_synd * sf[:, None] > 0, dim=-1)
+        metric = torch.where(valid, (cands.float() * yf[:, None]).sum(-1), torch.inf)
+        best = metric.argmin(dim=-1)
+        found = valid.any(dim=-1)
+        chosen = cands[torch.arange(B, device=ym.device), best]
+        preds[fail] = torch.where(found[:, None], chosen, preds[fail])
+        return preds
 
 
 if __name__ == "__main__":

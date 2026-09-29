@@ -301,6 +301,8 @@ def _main(cfg: DictConfig) -> None:
             tts_param_str = f"with {tts.num_iters} iterations"
         if tts.name == "tta":
             tts_param_str = f"with {tts.num_perms} permutations"
+        if tts.name == "afterburner":
+            tts_param_str = f"with {tts.num_flips} flipped positions"
         log.info(
             f"TTS strategy: {tts.name} {tts_param_str} (suffix={tts.suffix or '<none>'})"
         )
