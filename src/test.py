@@ -272,6 +272,12 @@ def _main(cfg: DictConfig) -> None:
     code = LinearCode(code_file)
     log.info(f"Code {code} has been successfully loaded")
 
+    # Optional eval-time iteration count, always with syndrome early exit. Must run
+    # before test_model's _maybe_compile so the compiled graph includes it.
+    # Non-iterative decoders raise there.
+    if cfg.n_iters is not None:
+        model.decoder.configure_eval(cfg.n_iters, code)  # type: ignore[operator]
+
     # Build the Eb/N0 sweep
     ebno_dB_range = torch.arange(cfg.snr_min, cfg.snr_max + cfg.snr_step, cfg.snr_step)
     log.info(
@@ -309,9 +315,10 @@ def _main(cfg: DictConfig) -> None:
 
     # Build the output file path
     pathlib.Path(cfg.output_dir).mkdir(parents=True, exist_ok=True)
-    # suffix order: <tts>[-bf16][-hdd]
+    # suffix order: <tts>[-it<n>][-bf16][-hdd]
     suffix = (
         tts.suffix
+        + (f"-it{cfg.n_iters}" if cfg.n_iters is not None else "")
         + ("-bf16" if cfg.precision == "bf16-mixed" else "")
         + ("-hdd" if cfg.hdd else "")
     )

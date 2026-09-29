@@ -234,7 +234,7 @@ Repeated evaluations with the same set of options can be grouped into a preset u
 sbnd-test /path/to/my-model.ckpt eval=bch-31-21
 ```
 
-`sbnd-test` also supports hard-decision decoding emulation (the `hdd` flag) and three test-time scaling variants — sequential **self-boosting**, parallel **test-time augmentation** and list-based **AfterBurner decoding** — that exchange extra inference compute for lower error rates.
+`sbnd-test` also supports hard-decision decoding emulation (the `hdd` flag) and three test-time scaling variants — sequential **self-boosting**, parallel **test-time augmentation** and list-based **AfterBurner decoding** — that exchange extra inference compute for lower error rates. Iterative decoders (rECCT, GRU) can also be evaluated at a different iteration count than they were trained with (`n_iters`), with syndrome-based early exit.
 
 → Full reference, options table, and TTS configuration: see [docs/evaluation.md](docs/evaluation.md).
 
@@ -329,7 +329,7 @@ Both the decoder and the datamodule default to `"codeword"`, so standard SBND ex
 The reference documentation lives under [`docs/`](docs):
 
 * [**Training a model**](docs/training.md) — creating a training experiment config: specifying code, data (on-demand or pre-computed, with multi-SNR / multi-file mixing and optional per-group loss reweighting; augmentation; dataset format and download), decoder, optimizer/scheduler, precision, resume vs. continue, logging, and end-of-training test evaluation.
-* [**Evaluating a model**](docs/evaluation.md) — running `sbnd-test`: the basic Monte-Carlo SNR sweep to measure WER and BER, hard-decision decoding optional post-filtering, and the test-time scaling variants (self-boosting, TTA and AfterBurner).
+* [**Evaluating a model**](docs/evaluation.md) — running `sbnd-test`: the basic Monte-Carlo SNR sweep to measure WER and BER, hard-decision decoding optional post-filtering, and the test-time scaling variants (self-boosting, TTA and AfterBurner), and the iteration-count override for iterative decoders.
 * [**Extending SBND**](docs/extending.md) — adding your own decoder architecture: the `BaseDecoder` template, conventions, a walk-through of the mocked decoder example, and how to wire it into an experiment.
 * [**Experiments**](docs/experiments.md) — index of the shipped experiments under [`conf/exp/`](conf/exp), grouped by code, with links to the corresponding evaluation logs in [`log/test/`](log/test).
 

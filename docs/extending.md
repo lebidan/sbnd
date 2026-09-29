@@ -9,6 +9,7 @@ This document collects the conventions and contracts to follow when adding new c
 1. [Adding a decoder architecture](#1-adding-a-decoder-architecture)
    - [The `BaseDecoder` contract](#the-basedecoder-contract)
    - [Conventions](#conventions)
+   - [Iterative decoders: opting in to `n_iters` at evaluation](#iterative-decoders-opting-in-to-n_iters-at-evaluation)
    - [Walk-through: the mocked decoder](#walk-through-the-mocked-decoder)
    - [Wiring the decoder into an experiment](#wiring-the-decoder-into-an-experiment)
 2. [Future extension points](#2-future-extension-points)
@@ -55,6 +56,30 @@ The output is interpreted as logits in bipolar convention: a negative value at p
 * **Do NOT call `self._maybe_compile()` in `__init__`.** Compilation is deferred and triggered by the training runtime (`SBNDLitModule.on_train_start`), deliberately *after* Lightning's `ModelSummary` has run — the summary traces the model under `FlopCounterMode`, and if that trace hits an already-`torch.compile`d module it becomes the first graph dynamo sees and poisons its cache, slowing every subsequent training step substantially. Your `__init__` just needs to pass `compile` up to `super().__init__()`; the base class stores it and the runtime does the rest. (A decoder used standalone, outside `SBNDLitModule`, therefore stays eager unless you call `_maybe_compile()` yourself.)
 * **Size your output projection from `self.output_sz`**, not from `code.n` or `code.k` directly. This is what allows the same decoder class to be used in both codeword-level and message-level (iSBND) modes — see [Decoding modes](../README.md#decoding-modes).
 * **Do not mutate `code`.** It is a shared object; treat it as read-only.
+* **New attributes need a class-level default.** Checkpoints pickle the whole decoder object, so `__init__` does not run again when a checkpoint is loaded, and a checkpoint saved before an attribute existed will not have it.
+
+### Iterative decoders: opting in to `n_iters` at evaluation
+
+If your decoder loops one weight-tied block `T` times, it can support `sbnd-test n_iters=<T'>` (see [Overriding the iteration count](evaluation.md#4-overriding-the-iteration-count)). `BaseDecoder` does the bookkeeping; the subclass needs two things:
+
+1. Set the class attribute `_iters_attr` to the name of the attribute holding the iteration count (e.g. `_iters_attr = "n_iters"`). `configure_eval(n_iters, code)` then records the trained count, overrides the attribute, and stores the code's parity-check matrix. Decoders that leave `_iters_attr = None` refuse the option.
+2. In `forward`, when `self._eval_active` is true (an override is set and the module is in eval mode), apply the readout after every iteration, stack the readouts into `(T', B, n)` logits and return `self._select_iteration(logits, s)`. Otherwise keep the original path untouched, so that evaluations without the override stay bit-identical.
+
+```python
+def forward(self, ym, s):
+    x = self.embed(ym, s)
+    if self._eval_active:
+        outs = []
+        for _ in range(self.n_iters):
+            x = self.block(x)
+            outs.append(self.readout(x))
+        return self._select_iteration(torch.stack(outs), s)
+    for _ in range(self.n_iters):
+        x = self.block(x)
+    return self.readout(x)
+```
+
+`_select_iteration` picks, per frame, the first iteration whose hard decision satisfies the syndrome, else the one at `min(T', T_train)`. It has no data-dependent Python control flow, so it works under `torch.compile(fullgraph=True)`, and it computes the syndrome in fp32 even under bf16 autocast. See [`RECCT`](../src/recct.py) and [`StackedGRU`](../src/gru.py) for the two shipped implementations.
 
 ### Walk-through: the mocked decoder
 

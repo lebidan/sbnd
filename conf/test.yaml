@@ -49,6 +49,12 @@ snr_min: 0.0
 snr_max: 5.0
 snr_step: 1.0
 
+# Evaluate an iterative decoder (rECCT `n_iters`, GRU `n_steps`) at this many
+# iterations instead of the trained count, with syndrome-based early exit always
+# on. null keeps the checkpoint's own count, without early exit. Adds `-it<n>` to
+# the CSV name. See docs/evaluation.md.
+n_iters: null
+
 # Monte Carlo sampling
 num_batches: 1024
 batch_size: 4096
