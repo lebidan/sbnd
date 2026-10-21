@@ -164,7 +164,21 @@ class SBNDLitModule(LightningModule):
         return e_pred, e_true, s  # preds, targets, syndromes
 
     def configure_optimizers(self) -> Any:
-        optimizer = self.hparams.optimizer(params=self.parameters())  # type: ignore[attr-defined]
+        # rECCT reinject gates: no weight decay, their learned values are the
+        # measurement and a decay prior would bias them towards 0
+        gates = [p for n, p in self.named_parameters() if "inject_gate" in n]
+        params: Any = self.parameters()
+        if gates:
+            rest = [p for n, p in self.named_parameters() if "inject_gate" not in n]
+            params = [{"params": rest}, {"params": gates, "weight_decay": 0.0}]
+        optimizer = self.hparams.optimizer(params=params)  # type: ignore[attr-defined]
+        if gates:
+            for i, g in enumerate(optimizer.param_groups):
+                n_p = sum(p.numel() for p in g["params"])
+                log.info(
+                    f"Param group {i}: {len(g['params'])} tensors, {n_p} params, "
+                    f"weight_decay={g.get('weight_decay')}"
+                )
         if self.hparams.lr_scheduler is None:  # type: ignore[attr-defined]
             return {"optimizer": optimizer}
 
@@ -272,6 +286,13 @@ class SBNDLitModule(LightningModule):
         # log Adam v min stats to monitor potential underflow issues
         if self._adam_step_max_acc:
             metrics["adam_effective_step_max"] = max(self._adam_step_max_acc)
+
+        # rECCT reinject gates by value, one scalar per iteration
+        for name, p in self.named_parameters():
+            if "inject_gate" in name:
+                metrics.update(
+                    {f"scalars/{name}.{t}": v.item() for t, v in enumerate(p.detach())}
+                )
 
         # also log norm of each layer parameters if full monitoring is enabled
         if self.full_monitoring:

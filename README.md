@@ -302,7 +302,7 @@ An almost verbatim port of the official CrossMPT implementation published in the
 
 <details><summary>rECCT decoder</summary>
 
-The rECCT decoder is a recurrent implementation of ECCT which can reach comparable performance with fewer parameters (up to 10x fewer parameters in certain cases). It was inspired by the [PhD work](https://theses.fr/2024ESAE0065) of Gaston de Boni Rovella. There has been renewed interest recently in recurrent transformers as a parameter-efficient architecture (see, e.g., the many papers on looped transformers that have flourished on arXiv since 2023).
+The rECCT decoder is a recurrent implementation of ECCT which can reach comparable performance with fewer parameters (up to 10x fewer parameters in certain cases). It was inspired by the [PhD work](https://theses.fr/2024ESAE0065) of Gaston de Boni Rovella. There has been renewed interest recently in recurrent transformers as a parameter-efficient architecture (see, e.g., the many papers on looped transformers that have flourished on arXiv since 2023). The decoder optionally re-injects its input before every iteration, with one learned weight per iteration (option `reinject`, see [Model-specific options](docs/training.md#model-specific-options)).
 
 </details>
 
