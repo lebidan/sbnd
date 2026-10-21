@@ -164,6 +164,7 @@ def test_model(
     t: int = 0,
     min_cw_errors: int = 0,
     precision: str = "32-true",
+    seed: int | None = None,
 ) -> list[dict[str, float]]:
     if precision not in PRECISIONS:
         raise ValueError(f"precision must be one of {PRECISIONS}, got {precision!r}")
@@ -201,6 +202,10 @@ def test_model(
             error_space=error_space,
         )
         dl = DataLoader(ds, batch_size=None, num_workers=num_workers)
+        # the DataLoader draws its workers' base seed from the main RNG when the
+        # iterator is created: seeding here makes the frames of this point reproducible
+        if seed is not None:
+            torch.manual_seed(seed)
         with torch.no_grad():
             for b, batch in enumerate(tqdm(dl, disable=not show_progress), 1):
                 ym, syndromes, targets, _ = batch  # per-sample loss weight unused
@@ -288,6 +293,8 @@ def _main(cfg: DictConfig) -> None:
         budget = f"At most {budget}, stopping early at {cfg.min_cw_errors} CW errors"
     log.info(budget)
     log.info(f"Dataloading will use {cfg.num_workers} cpus")
+    if cfg.seed is not None:
+        log.info(f"Seed: {cfg.seed} (set before each Eb/N0 point)")
     compiled = getattr(model.decoder, "_compile", False)
     log.info(f"Precision: {cfg.precision}, torch.compile: {compiled}")
 
@@ -339,6 +346,7 @@ def _main(cfg: DictConfig) -> None:
         t=t,
         min_cw_errors=cfg.min_cw_errors,
         precision=cfg.precision,
+        seed=cfg.seed,
     )
 
     # Pretty print results in the terminal
