@@ -169,6 +169,8 @@ class DecoderLayer(nn.Module):
 
 class RECCT(BaseDecoder):
     _iters_attr = "n_iters"  # opts in to BaseDecoder.configure_eval
+    reinject: bool = False  # class default: decoders pickled before the option load
+    inject_gate: nn.Parameter
 
     def __init__(
         self,
@@ -184,6 +186,7 @@ class RECCT(BaseDecoder):
         bias: bool = False,
         compile: bool = False,
         error_space: str = "codeword",
+        reinject: bool = False,
     ) -> None:
         super().__init__(code, error_space=error_space, compile=compile)
 
@@ -199,6 +202,7 @@ class RECCT(BaseDecoder):
                 "Fast CUDA fused kernels for SDPA require head dim to be a multiple of 8"
             )
         log.info(f"FFN expansion factor = {ffn_expand_factor:.1f}")
+        log.info(f"Input re-injection with learned gates = {reinject}")
 
         self.n_iters = n_iters
         self.n_layers = n_layers
@@ -228,6 +232,23 @@ class RECCT(BaseDecoder):
 
         # initialize parameters
         self.apply(self._init_weights)
+
+        # reinject: the stream starts at 0 and x0 is re-added before layer 0's call of
+        # iteration t, x += inject_gate[t] * x0, so [1, 0, ..., 0] is reinject=False.
+        # torch.full draws no random numbers: the other weights keep their init.
+        # SBNDLitModule exempts the gates from weight decay and logs them per epoch.
+        self.reinject = reinject
+        if reinject:
+            self.inject_gate = nn.Parameter(torch.full((n_iters,), 1.0 / n_iters))
+
+    def configure_eval(self, n_iters: int, code: LinearCode) -> None:
+        trained = self._trained_iters or self.n_iters
+        if self.reinject and n_iters > trained:
+            raise ValueError(
+                f"n_iters override above the trained count ({trained}) is not "
+                "supported with reinject=True: no gate exists for the extra iterations"
+            )
+        super().configure_eval(n_iters, code)
 
     def register_mask(self, code: LinearCode) -> None:
 
@@ -275,25 +296,23 @@ class RECCT(BaseDecoder):
     def forward(self, ym: Tensor, s: Tensor) -> Tensor:
 
         # generate the embedding vectors from the input
-        x = self.embed(ym, s)
+        x0 = self.embed(ym, s)
+        x = torch.zeros_like(x0) if self.reinject else x0
 
-        # eval-time n_iters override: every iteration of the last layer's loop is a
-        # candidate answer (earlier layers' states are not final answers)
-        if self._eval_active:
-            *first, last = self.encoding_layers
-            for layer in first:
-                for _ in range(self.n_iters):
-                    x = layer(x, self.mask)
-            outs = []
-            for _ in range(self.n_iters):
-                x = last(x, self.mask)
-                outs.append(self.decode(x))
-            return self._select_iteration(torch.stack(outs), s)
-
-        # iterate over the base encoder layers to refine the latent representation of the error pattern
-        for layer in self.encoding_layers:
-            for _ in range(self.n_iters):
+        # iterate over the base encoder layers to refine the latent representation of
+        # the error pattern. Eval-time n_iters override: every iteration of the last
+        # layer's loop is a candidate answer (earlier layers' states are not final)
+        outs = []
+        for i, layer in enumerate(self.encoding_layers):
+            for t in range(self.n_iters):
+                if self.reinject and i == 0:
+                    x = x + self.inject_gate[t] * x0
                 x = layer(x, self.mask)
+                if self._eval_active and i == len(self.encoding_layers) - 1:
+                    outs.append(self.decode(x))
+
+        if self._eval_active:
+            return self._select_iteration(torch.stack(outs), s)
 
         # decode the result to obtain the error pattern
         return self.decode(x)
@@ -360,4 +379,55 @@ if __name__ == "__main__":
             raise AssertionError("message space accepted")
         except ValueError:
             pass
+
+        # 6. reinject=False is the default model; an old pickle (no attribute) too
+        def build(seed: int = 0, **kw: object) -> RECCT:
+            torch.manual_seed(seed)
+            return RECCT(code, embed_dim=32, n_heads=4, **kw).eval()  # type: ignore[arg-type]
+
+        out = build()(ym, s)
+        off = build(reinject=False)
+        assert torch.equal(off(ym, s), out)
+        del off.reinject  # instance attribute gone: the class default applies
+        assert torch.equal(off(ym, s), out)
+
+        # 7. reinject=True: gates [1, 0, ..., 0] reproduce reinject=False
+        for L in (1, 2):
+            off = build(n_layers=L, n_iters=3)
+            on = build(n_layers=L, n_iters=3, reinject=True)
+            g = on.inject_gate
+            assert g.shape == (3,) and torch.isclose(g.sum(), torch.tensor(1.0))
+            on.load_state_dict(off.state_dict(), strict=False)  # all but the gates
+            g.copy_(torch.tensor([1.0, 0.0, 0.0]))
+            assert torch.allclose(on(ym, s), off(ym, s), atol=1e-6), f"L={L}"
+
+        # 8. manual loop with random gates (n_layers=1)
+        on = build(n_iters=3, reinject=True)
+        on.inject_gate.copy_(torch.randn(3))
+        x0 = on.embed(ym, s)
+        x, outs = torch.zeros_like(x0), []
+        for t in range(3):
+            x = on.encoding_layers[0](x + on.inject_gate[t] * x0, on.mask)
+            outs.append(on.decode(x))
+        assert torch.allclose(on(ym, s), outs[-1], atol=1e-6)
+
+        # 9. eval override: at most the trained count with reinject
+        on.configure_eval(2, code)
+        assert torch.allclose(
+            on(ym, s), on._select_iteration(torch.stack(outs[:2]), s), atol=1e-6
+        )
+        try:
+            on.configure_eval(5, code)
+            raise AssertionError("override above the trained count accepted")
+        except ValueError:
+            pass
+
+        # 10. checkpoint round trip (Lightning pickles the decoder object)
+        import io
+
+        buf = io.BytesIO()
+        torch.save(on, buf)
+        buf.seek(0)
+        back = torch.load(buf, weights_only=False)
+        assert back.reinject and torch.equal(back.inject_gate, on.inject_gate)
     print("all checks passed")

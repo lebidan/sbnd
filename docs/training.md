@@ -248,6 +248,21 @@ decoder:
 
 > **Note (when compilation happens).** With `compile: true` the decoder is **not** compiled in its constructor — the training runtime compiles it at the start of training (`SBNDLitModule.on_train_start`), deliberately *after* Lightning's `ModelSummary` has printed. Running the summary (which traces the model under `FlopCounterMode`) against an already-`torch.compile`d module makes that instrumented trace the first graph dynamo sees and poisons the compile cache, slowing *every* subsequent training step substantially. Deferring compilation avoids this while keeping the full startup summary (FLOPs and input/output sizes included). Practical consequence: the `Compiling model forward` log line appears after the summary table, and compiled state doesn't survive checkpoint save/load, so resumed runs and `sbnd-test` recompile the decoder after loading it.
 
+### Model-specific options
+
+The common hyperparameters (`embed_dim`, `n_layers`, `n_heads`, dropout rates, ...) are documented in each decoder's source file, as above. The table below lists the options that exist for one decoder architecture only and change how it processes its input.
+
+| Decoder | Option | Values | Default | What it does |
+|---|---|---|---|---|
+| `StackedGRU` ([`src/gru.py`](../src/gru.py)) | `zero_padding` | `true`, `false` | `false` | By default, the input vector (LLR magnitudes and syndrome) is fed to the GRU at every time step. With `zero_padding: true`, it is fed at the first time step only, and an all-zero vector is fed at every later step. |
+| `RECCT` ([`src/recct.py`](../src/recct.py)) | `reinject` | `true`, `false` | `false` | Learned re-injection of the input at every iteration. The internal state starts empty, and the input embedding is added to it again before every iteration, scaled by one learned weight per iteration (see below). |
+
+**More on `reinject`.** By default, rECCT embeds its input once and uses that embedding as the starting state of its loop. With `reinject: true`, the starting state is all zeros instead, and before iteration `t` (out of `n_iters`) the decoder adds `g[t] × embedding` to its state, where `g` holds one learned weight per iteration (`n_iters` extra parameters). The weights start at `1 / n_iters`, so that the total amount of input injected at the start of training is the same as without the option. Setting `g = [1, 0, ..., 0]` gives back exactly the decoder without the option. With `n_layers > 1`, where each layer is iterated `n_iters` times in turn, the input is re-injected before the first layer's iterations only. All other weights get the same initial values as without the option for a given seed.
+
+The weights `g` are excluded from weight decay (they go in a separate optimizer parameter group, and both groups are listed in the log at the start of training): their learned values show how much input the model wants at each iteration, and weight decay would pull them towards zero. They are logged by value at the end of every epoch, one scalar per iteration, as `scalars/decoder.inject_gate.<t>`.
+
+Enable the option with `+decoder.reinject=true` on the command line, or with `reinject: true` in the `decoder:` block of the config. A model trained this way cannot be evaluated with an [iteration-count override](evaluation.md#4-overriding-the-iteration-count) above its trained count, since no weight exists for the extra iterations; `sbnd-test` raises an error in that case. Checkpoints saved before the option existed load and run as `reinject: false`.
+
 To implement a new decoder architecture, see [Extending SBND](extending.md).
 
 ## Trainer
