@@ -11,12 +11,17 @@ Some of the eval logs below have been used to generate the plots in [this prepri
 ## Contents
 
 1. [BCH (31, 21, 5)](#bch-31-21-5)
-2. [BCH (63, 45, 7)](#bch-63-45-7)
-3. [eBCH (32, 16, 8)](#ebch-32-16-8)
-4. [Reed-Muller (32, 16, 8)](#reed-muller-32-16-8)
-5. [QC-LDPC (96, 48, 10) from RPTU](#qc-ldpc-96-48-10-from-rptu)
-6. [QC-LDPC (128, 64, 14) from CCSDS](#qc-ldpc-128-64-14-from-ccsds)
-7. [Polar (128, 64, 8) from RPTU](#polar-128-64-8-from-rptu)
+2. [BCH (63, 24, 15)](#bch-63-24-15)
+3. [BCH (63, 30, 13)](#bch-63-30-13)
+4. [BCH (63, 36, 11)](#bch-63-36-11)
+5. [BCH (63, 39, 9)](#bch-63-39-9)
+6. [BCH (63, 45, 7)](#bch-63-45-7)
+7. [BCH (63, 51, 5)](#bch-63-51-5)
+8. [eBCH (32, 16, 8)](#ebch-32-16-8)
+9. [Reed-Muller (32, 16, 8)](#reed-muller-32-16-8)
+10. [QC-LDPC (96, 48, 10) from RPTU](#qc-ldpc-96-48-10-from-rptu)
+11. [QC-LDPC (128, 64, 14) from CCSDS](#qc-ldpc-128-64-14-from-ccsds)
+12. [Polar (128, 64, 8) from RPTU](#polar-128-64-8-from-rptu)
 
 Conventions:
 
@@ -47,6 +52,40 @@ Code file: [`bch.31.21.mat`](../data/codes/bch.31.21.mat). All experiments use t
 | [rECCT](../conf/exp/recct-bch-31-21-ml-4m-3dB.yaml) | 70K | 4M ML samples at 3 dB | 128 | [results](../log/test/recct-bch-31-21-ml-4m-3dB-128epochs-vibrant-paper-1856.csv) |
 | [rECCT](../conf/exp/recct-bch-31-21-ml-16m-3dB.yaml) | 70K | 16M ML samples at 3 dB | 128 | [results](../log/test/recct-bch-31-21-ml-16m-3dB-128epochs-iconic-bee-2007.csv) |
 
+## BCH (63, 24, 15)
+
+Code file: [`bch.63.24.mat`](../data/codes/bch.63.24.mat). The experiments below use a 4M-sample ML dataset at 2 dB built like the (63, 45) one (`train-ml-4M-2dB.mat`, see [Pre-computed dataset format and download](training.md#pre-computed-dataset-format-and-download)); it is not available for download yet. The matching rECCT config, [`recct-bch-63-24-ml-4m-2dB-aug.yaml`](../conf/exp/recct-bch-63-24-ml-4m-2dB-aug.yaml), is the (63, 45) one with the code and dataset paths changed; no eval log yet.
+
+### Experiments with a pre-computed dataset
+
+| Decoder | Size | Training data | Epochs | Eval log |
+| --- | --- | --- | --- | --- |
+| [GRU](../conf/exp/gru-bch-63-24-ml-4m-2dB-aug.yaml) | 1.5M | 4M ML samples at 2 dB, with augmentation | 512 | [results](../log/test/gru-bch-63-24-ml-4m-2dB-aug-zp-512epochs-upbeat-star-2187-bf16.csv) |
+
+## BCH (63, 30, 13)
+
+Code file: [`bch.63.30.mat`](../data/codes/bch.63.30.mat). Configs for a 4M-sample ML dataset at 2 dB built like the (63, 45) one (not available for download yet): [`gru-bch-63-30-ml-4m-2dB-aug.yaml`](../conf/exp/gru-bch-63-30-ml-4m-2dB-aug.yaml) and [`recct-bch-63-30-ml-4m-2dB-aug.yaml`](../conf/exp/recct-bch-63-30-ml-4m-2dB-aug.yaml), the (63, 45) ones with the code and dataset paths changed. No eval log yet.
+
+## BCH (63, 36, 11)
+
+Code file: [`bch.63.36.mat`](../data/codes/bch.63.36.mat). The experiments below use a 4M-sample ML dataset at 2 dB built like the (63, 45) one (`train-ml-4M-2dB.mat`, see [Pre-computed dataset format and download](training.md#pre-computed-dataset-format-and-download)); it is not available for download yet. The matching rECCT config, [`recct-bch-63-36-ml-4m-2dB-aug.yaml`](../conf/exp/recct-bch-63-36-ml-4m-2dB-aug.yaml), is the (63, 45) one with the code and dataset paths changed; no eval log yet.
+
+### Experiments with a pre-computed dataset
+
+| Decoder | Size | Training data | Epochs | Eval log |
+| --- | --- | --- | --- | --- |
+| [GRU](../conf/exp/gru-bch-63-36-ml-4m-2dB-aug.yaml) | 1.5M | 4M ML samples at 2 dB, with augmentation | 512 | [results](../log/test/gru-bch-63-36-ml-4m-2dB-aug-zp-512epochs-vocal-jazz-2186-bf16.csv) |
+
+## BCH (63, 39, 9)
+
+Code file: [`bch.63.39.mat`](../data/codes/bch.63.39.mat). The experiments below use a 4M-sample ML dataset at 2 dB built like the (63, 45) one (`train-ml-4M-2dB.mat`, see [Pre-computed dataset format and download](training.md#pre-computed-dataset-format-and-download)); it is not available for download yet. The matching rECCT config, [`recct-bch-63-39-ml-4m-2dB-aug.yaml`](../conf/exp/recct-bch-63-39-ml-4m-2dB-aug.yaml), is the (63, 45) one with the code and dataset paths changed; no eval log yet.
+
+### Experiments with a pre-computed dataset
+
+| Decoder | Size | Training data | Epochs | Eval log |
+| --- | --- | --- | --- | --- |
+| [GRU](../conf/exp/gru-bch-63-39-ml-4m-2dB-aug.yaml) | 1.5M | 4M ML samples at 2 dB, with augmentation | 512 | [results](../log/test/gru-bch-63-39-ml-4m-2dB-aug-zp-512epochs-devoted-grass-2185-bf16.csv) |
+
 ## BCH (63, 45, 7)
 
 Code file: [`bch.63.45.mat`](../data/codes/bch.63.45.mat). Dataset for the dataset-based experiments below: [`train-ml-4M-2dB.mat`](https://sdrive.cnrs.fr/s/wMDN6beY2Gnb7rg) (see [Pre-computed dataset format and download](training.md#pre-computed-dataset-format-and-download)). Larger ML datasets can also be downloaded from [this link](https://ai4code.projects.labsticc.fr/software/).
@@ -64,10 +103,20 @@ Code file: [`bch.63.45.mat`](../data/codes/bch.63.45.mat). Dataset for the datas
 
 | Decoder | Size | Training data | Epochs | Eval log |
 | --- | --- | --- | --- | --- |
-| [GRU](../conf/exp/gru-bch-63-45-ml-4m-2dB-aug.yaml) | 1.4M | 4M ML samples at 2 dB, with augmentation | 512 | [results](../log/test/gru-bch-63-45-ml-4m-2dB-aug-512epochs-smart-star-1842.csv) |
+| [GRU](../conf/exp/gru-bch-63-45-ml-4m-2dB-aug.yaml) | 1.4M | 4M ML samples at 2 dB, with augmentation | 512 | [results](../log/test/gru-bch-63-45-ml-4m-2dB-aug-512epochs-smart-star-1842.csv) (trained with the input repeated at every step; the config now sets `zero_padding: true`, the setting of the other BCH(63, k) GRU runs) |
 | [ECCT](../conf/exp/ecct-bch-63-45-ml-1m-2dB-aug.yaml) | 1.2M | 1M ML samples at 2 dB, with augmentation | 128 | [results](../log/test/ecct-bch-63-45-ml-1m-2dB-aug-128epochs-restful-silence-1903.csv) |
 | [ECCT](../conf/exp/ecct-bch-63-45-ml-4m-2dB-aug.yaml) | 1.2M | 4M ML samples at 2 dB, with augmentation | 512 | [results](../log/test/ecct-bch-63-45-ml-4m-2dB-aug-512epochs-proud-star-1898.csv) |
 | [rECCT](../conf/exp/recct-bch-63-45-ml-4m-2dB-aug.yaml) | 611K | 4M ML samples at 2 dB, with augmentation | 512 | [results](../log/test/recct-bch-63-45-ml-4m-2dB-aug-512epochs-fiery-plant-1871.csv) |
+
+## BCH (63, 51, 5)
+
+Code file: [`bch.63.51.mat`](../data/codes/bch.63.51.mat). The experiments below use a 4M-sample ML dataset at 2.5 dB built like the (63, 45) one (`train-ml-4M-2.5dB.mat`, see [Pre-computed dataset format and download](training.md#pre-computed-dataset-format-and-download)); it is not available for download yet. The matching rECCT config, [`recct-bch-63-51-ml-4m-2.5dB-aug.yaml`](../conf/exp/recct-bch-63-51-ml-4m-2.5dB-aug.yaml), is the (63, 45) one with the code and dataset paths changed ([`recct-bch-63-51-ml-4m-2dB-aug.yaml`](../conf/exp/recct-bch-63-51-ml-4m-2dB-aug.yaml) is the same recipe on a 2 dB dataset); no eval log yet.
+
+### Experiments with a pre-computed dataset
+
+| Decoder | Size | Training data | Epochs | Eval log |
+| --- | --- | --- | --- | --- |
+| [GRU](../conf/exp/gru-bch-63-51-ml-4m-2.5dB-aug.yaml) | 1.4M | 4M ML samples at 2.5 dB, with augmentation | 512 | [results](../log/test/gru-bch-63-51-ml-4m-2.5dB-aug-zp-512epochs-pious-waterfall-2184-bf16.csv) |
 
 ## eBCH (32, 16, 8)
 
