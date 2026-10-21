@@ -54,13 +54,14 @@ Code file: [`bch.31.21.mat`](../data/codes/bch.31.21.mat). All experiments use t
 
 ## BCH (63, 24, 15)
 
-Code file: [`bch.63.24.mat`](../data/codes/bch.63.24.mat). The experiments below use a 4M-sample ML dataset at 2 dB built like the (63, 45) one (`train-ml-4M-2dB.mat`, see [Pre-computed dataset format and download](training.md#pre-computed-dataset-format-and-download)); it is not available for download yet. The matching rECCT config, [`recct-bch-63-24-ml-4m-2dB-aug.yaml`](../conf/exp/recct-bch-63-24-ml-4m-2dB-aug.yaml), is the (63, 45) one with the code and dataset paths changed; no eval log yet.
+Code file: [`bch.63.24.mat`](../data/codes/bch.63.24.mat). The experiments below use a 4M-sample ML dataset at 2 dB built like the (63, 45) one (`train-ml-4M-2dB.mat`, see [Pre-computed dataset format and download](training.md#pre-computed-dataset-format-and-download)); it is not available for download yet. The rECCT config, [`recct-bch-63-24-ml-4m-2dB-aug.yaml`](../conf/exp/recct-bch-63-24-ml-4m-2dB-aug.yaml), is the (63, 45) one with the code and dataset paths changed.
 
 ### Experiments with a pre-computed dataset
 
 | Decoder | Size | Training data | Epochs | Eval log |
 | --- | --- | --- | --- | --- |
 | [GRU](../conf/exp/gru-bch-63-24-ml-4m-2dB-aug.yaml) | 1.5M | 4M ML samples at 2 dB, with augmentation | 512 | [results](../log/test/gru-bch-63-24-ml-4m-2dB-aug-zp-512epochs-upbeat-star-2187-bf16.csv) |
+| [rECCT](../conf/exp/recct-bch-63-24-ml-4m-2dB-aug.yaml) | 617K | 4M ML samples at 2 dB, with augmentation | 512 | [results](../log/test/recct-bch-63-24-ml-4m-2dB-aug-512epochs-cont-comfy-jazz-2147-bf16.csv) (1 to 5.5 dB) |
 
 ## BCH (63, 30, 13)
 
@@ -68,23 +69,25 @@ Code file: [`bch.63.30.mat`](../data/codes/bch.63.30.mat). Configs for a 4M-samp
 
 ## BCH (63, 36, 11)
 
-Code file: [`bch.63.36.mat`](../data/codes/bch.63.36.mat). The experiments below use a 4M-sample ML dataset at 2 dB built like the (63, 45) one (`train-ml-4M-2dB.mat`, see [Pre-computed dataset format and download](training.md#pre-computed-dataset-format-and-download)); it is not available for download yet. The matching rECCT config, [`recct-bch-63-36-ml-4m-2dB-aug.yaml`](../conf/exp/recct-bch-63-36-ml-4m-2dB-aug.yaml), is the (63, 45) one with the code and dataset paths changed; no eval log yet.
+Code file: [`bch.63.36.mat`](../data/codes/bch.63.36.mat). The experiments below use a 4M-sample ML dataset at 2 dB built like the (63, 45) one (`train-ml-4M-2dB.mat`, see [Pre-computed dataset format and download](training.md#pre-computed-dataset-format-and-download)); it is not available for download yet. The rECCT config, [`recct-bch-63-36-ml-4m-2dB-aug.yaml`](../conf/exp/recct-bch-63-36-ml-4m-2dB-aug.yaml), is the (63, 45) one with the code and dataset paths changed and the learned re-injection gates on. The 128-epoch log below was trained with `max_epochs=128 lr_scheduler.decay=16`.
 
 ### Experiments with a pre-computed dataset
 
 | Decoder | Size | Training data | Epochs | Eval log |
 | --- | --- | --- | --- | --- |
 | [GRU](../conf/exp/gru-bch-63-36-ml-4m-2dB-aug.yaml) | 1.5M | 4M ML samples at 2 dB, with augmentation | 512 | [results](../log/test/gru-bch-63-36-ml-4m-2dB-aug-zp-512epochs-vocal-jazz-2186-bf16.csv) |
+| [rECCT](../conf/exp/recct-bch-63-36-ml-4m-2dB-aug.yaml) | 614K | 4M ML samples at 2 dB, with augmentation | 128 | [results](../log/test/recct-bch-63-36-ml-4m-2dB-aug-128epochs-b2s-a0-golden-fire-2204-bf16.csv) (learned re-injection gates, `reinject: true`) |
 
 ## BCH (63, 39, 9)
 
-Code file: [`bch.63.39.mat`](../data/codes/bch.63.39.mat). The experiments below use a 4M-sample ML dataset at 2 dB built like the (63, 45) one (`train-ml-4M-2dB.mat`, see [Pre-computed dataset format and download](training.md#pre-computed-dataset-format-and-download)); it is not available for download yet. The matching rECCT config, [`recct-bch-63-39-ml-4m-2dB-aug.yaml`](../conf/exp/recct-bch-63-39-ml-4m-2dB-aug.yaml), is the (63, 45) one with the code and dataset paths changed; no eval log yet.
+Code file: [`bch.63.39.mat`](../data/codes/bch.63.39.mat). The experiments below use a 4M-sample ML dataset at 2 dB built like the (63, 45) one (`train-ml-4M-2dB.mat`, see [Pre-computed dataset format and download](training.md#pre-computed-dataset-format-and-download)); it is not available for download yet. The rECCT config, [`recct-bch-63-39-ml-4m-2dB-aug.yaml`](../conf/exp/recct-bch-63-39-ml-4m-2dB-aug.yaml), is the (63, 45) one with the code and dataset paths changed. The 128-epoch log below was trained with `max_epochs=128 lr_scheduler.decay=16`.
 
 ### Experiments with a pre-computed dataset
 
 | Decoder | Size | Training data | Epochs | Eval log |
 | --- | --- | --- | --- | --- |
 | [GRU](../conf/exp/gru-bch-63-39-ml-4m-2dB-aug.yaml) | 1.5M | 4M ML samples at 2 dB, with augmentation | 512 | [results](../log/test/gru-bch-63-39-ml-4m-2dB-aug-zp-512epochs-devoted-grass-2185-bf16.csv) |
+| [rECCT](../conf/exp/recct-bch-63-39-ml-4m-2dB-aug.yaml) | 613K | 4M ML samples at 2 dB, with augmentation | 128 | [results](../log/test/recct-bch-63-39-ml-4m-2dB-aug-128epochs-restful-moon-2142-bf16.csv) |
 
 ## BCH (63, 45, 7)
 
