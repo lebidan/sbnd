@@ -67,6 +67,7 @@ The active TTS strategy, an `n_iters` override, the precision and the HDD flag a
 | `num_batches` | 1024 | Number of batches per SNR point (a maximum when `min_cw_errors > 0`) |
 | `min_cw_errors` | 500 | Stop an SNR point early once this run has seen this many codeword errors; `0` = always run `num_batches` — see below |
 | `num_workers` | 2 | Number of workers for dataloading (must be >= 1, the same rule as for training) |
+| `seed` | `null` | When set, `torch.manual_seed(seed)` is called before each SNR point's data loop: two runs with the same `seed`, `num_workers`, `batch_size` and `num_batches` see the same frames (random TTS permutations become reproducible too) |
 | `precision` | `32-true` | `32-true` (fp32) or `bf16-mixed` (bf16 autocast, adds `-bf16` to the CSV name) — see below |
 | `n_iters` | `null` | Evaluate an iterative decoder at this many iterations, with syndrome-based early exit (adds `-it<n>` to the CSV name) — see §4 |
 | `hdd` | `false` | Enable hard-decision decoding emulation — see §2 |
