@@ -106,17 +106,19 @@ Code file: [`bch.63.45.mat`](../data/codes/bch.63.45.mat). Dataset for the datas
 | [GRU](../conf/exp/gru-bch-63-45-ml-4m-2dB-aug.yaml) | 1.4M | 4M ML samples at 2 dB, with augmentation | 512 | [results](../log/test/gru-bch-63-45-ml-4m-2dB-aug-512epochs-smart-star-1842.csv) (trained with the input repeated at every step; the config now sets `zero_padding: true`, the setting of the other BCH(63, k) GRU runs) |
 | [ECCT](../conf/exp/ecct-bch-63-45-ml-1m-2dB-aug.yaml) | 1.2M | 1M ML samples at 2 dB, with augmentation | 128 | [results](../log/test/ecct-bch-63-45-ml-1m-2dB-aug-128epochs-restful-silence-1903.csv) |
 | [ECCT](../conf/exp/ecct-bch-63-45-ml-4m-2dB-aug.yaml) | 1.2M | 4M ML samples at 2 dB, with augmentation | 512 | [results](../log/test/ecct-bch-63-45-ml-4m-2dB-aug-512epochs-proud-star-1898.csv) |
-| [rECCT](../conf/exp/recct-bch-63-45-ml-4m-2dB-aug.yaml) | 611K | 4M ML samples at 2 dB, with augmentation | 512 | [results](../log/test/recct-bch-63-45-ml-4m-2dB-aug-512epochs-fiery-plant-1871.csv) |
+| [rECCT](../conf/exp/recct-bch-63-45-ml-4m-2dB-aug.yaml) | 611K | 4M ML samples at 2 dB, with augmentation | 512 | [results](../log/test/recct-bch-63-45-ml-4m-2dB-aug-512epochs-fiery-plant-1871.csv) (trained with `reinject` off; the config now sets `reinject: true`) |
+| [rECCT](../conf/exp/recct-bch-63-45-ml-4m-2dB-aug.yaml) | 611K | 4M ML samples at 2 dB, with augmentation | 512 | [results](../log/test/recct-bch-63-45-ml-4m-2dB-aug-512epochs-b2s-a0-sweet-mountain-2200-v15-bf16.csv) (learned re-injection gates, `reinject: true`) |
 
 ## BCH (63, 51, 5)
 
-Code file: [`bch.63.51.mat`](../data/codes/bch.63.51.mat). The experiments below use a 4M-sample ML dataset at 2.5 dB built like the (63, 45) one (`train-ml-4M-2.5dB.mat`, see [Pre-computed dataset format and download](training.md#pre-computed-dataset-format-and-download)); it is not available for download yet. The matching rECCT config, [`recct-bch-63-51-ml-4m-2.5dB-aug.yaml`](../conf/exp/recct-bch-63-51-ml-4m-2.5dB-aug.yaml), is the (63, 45) one with the code and dataset paths changed ([`recct-bch-63-51-ml-4m-2dB-aug.yaml`](../conf/exp/recct-bch-63-51-ml-4m-2dB-aug.yaml) is the same recipe on a 2 dB dataset); no eval log yet.
+Code file: [`bch.63.51.mat`](../data/codes/bch.63.51.mat). The experiments below use a 4M-sample ML dataset at 2.5 dB built like the (63, 45) one (`train-ml-4M-2.5dB.mat`, see [Pre-computed dataset format and download](training.md#pre-computed-dataset-format-and-download)); it is not available for download yet. The rECCT config, [`recct-bch-63-51-ml-4m-2.5dB-aug.yaml`](../conf/exp/recct-bch-63-51-ml-4m-2.5dB-aug.yaml), is the (63, 45) one with the code and dataset paths changed and the learned re-injection gates on ([`recct-bch-63-51-ml-4m-2dB-aug.yaml`](../conf/exp/recct-bch-63-51-ml-4m-2dB-aug.yaml) is the same recipe on a 2 dB dataset, without an eval log).
 
 ### Experiments with a pre-computed dataset
 
 | Decoder | Size | Training data | Epochs | Eval log |
 | --- | --- | --- | --- | --- |
 | [GRU](../conf/exp/gru-bch-63-51-ml-4m-2.5dB-aug.yaml) | 1.4M | 4M ML samples at 2.5 dB, with augmentation | 512 | [results](../log/test/gru-bch-63-51-ml-4m-2.5dB-aug-zp-512epochs-pious-waterfall-2184-bf16.csv) |
+| [rECCT](../conf/exp/recct-bch-63-51-ml-4m-2.5dB-aug.yaml) | 610K | 4M ML samples at 2.5 dB, with augmentation | 512 | [results](../log/test/recct-bch-63-51-ml-4m-2.5dB-aug-512epochs-b2s-a0-bright-sunset-2203-v15-bf16.csv) (learned re-injection gates, `reinject: true`) |
 
 ## eBCH (32, 16, 8)
 
