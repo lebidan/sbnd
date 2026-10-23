@@ -170,7 +170,13 @@ Code file: [`ldpc.ccsds.128.64.mat`](../data/codes/ldpc.ccsds.128.64.mat). This 
 
 Code file: [`polar.rptu.128.64.mat`](../data/codes/polar.rptu.128.64.mat). Dataset for the dataset-based experiment below: [`train-ml-4M-3dB.mat`](https://sdrive.cnrs.fr/s/sdkG86Terq5KCLr) (see [Pre-computed dataset format and download](training.md#pre-computed-dataset-format-and-download)). The Polar code is non-systematic and ships with a reverse-encoding matrix `Ginv`; augmentation uses `GenericPerms`. Permutations file: [`perms.polar.128.mat`](../data/perms/perms.polar.128.mat). 
 
-The three rECCT on-demand / dataset experiments below correspond to the three-step training recipe described in the [README highlight](../README.md#why-sbnd).
+The rECCT model shown in the [README performance highlights](../README.md#performance-highlights) was trained in three steps, corresponding to the three rECCT experiments below:
+
+1. On-demand data at 4 dB for 512 epochs;
+2. A dataset of 4M ML error patterns with data augmentation at 3 dB for 256 epochs; the resulting model matches or outperforms SCL-8 up to 5 dB, but shows a performance kink beyond that point;
+3. On-demand data at 5 dB for 64 epochs to recover high-SNR performance at the cost of a slight low-SNR degradation.
+
+The [`+continue` command-line option](training.md#resuming-and-continuing-training) was used to continue training from one step to the next. This recipe still has room for improvement: with a better training data mix, we expect the residual performance gap at high SNR to disappear without hurting low-SNR performance.
 
 ### Experiments with on-demand data
 
