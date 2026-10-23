@@ -14,16 +14,16 @@ Syndrome-Based Neural Decoding
 <img src="https://img.shields.io/badge/version-0.2.0-lightgrey" alt="Version"/>
 </p>
 <p align="center">
-<a href="#-why-sbnd">Overview</a> |
-<a href="#-features">Features</a> |
-<a href="#-installation">Installation</a> |
-<a href="#-getting-started">Getting Started</a> |
-<a href="#-supported-codes--decoders">Codes &amp; Decoders</a> |
-<a href="#-documentation">Documentation</a> |
+<a href="#why-sbnd">Overview</a> |
+<a href="#features">Features</a> |
+<a href="#installation">Installation</a> |
+<a href="#getting-started">Getting Started</a> |
+<a href="#supported-codes--decoders">Codes &amp; Decoders</a> |
+<a href="#documentation">Documentation</a> |
 <a href="docs/training.md">Training</a> |
 <a href="docs/evaluation.md">Evaluation</a> |
 <a href="docs/extending.md">Extending</a> |
-<a href="#-contributing">Contributing</a>
+<a href="#contributing">Contributing</a>
 </p>
 
 **`SBND`** is a PyTorch/Lightning framework for training and evaluating syndrome-based neural decoders for linear error-correcting codes.

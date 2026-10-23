@@ -170,7 +170,7 @@ Code file: [`ldpc.ccsds.128.64.mat`](../data/codes/ldpc.ccsds.128.64.mat). This 
 
 Code file: [`polar.rptu.128.64.mat`](../data/codes/polar.rptu.128.64.mat). Dataset for the dataset-based experiment below: [`train-ml-4M-3dB.mat`](https://sdrive.cnrs.fr/s/sdkG86Terq5KCLr) (see [Pre-computed dataset format and download](training.md#pre-computed-dataset-format-and-download)). The Polar code is non-systematic and ships with a reverse-encoding matrix `Ginv`; augmentation uses `GenericPerms`. Permutations file: [`perms.polar.128.mat`](../data/perms/perms.polar.128.mat). 
 
-The three rECCT on-demand / dataset experiments below correspond to the three-step training recipe described in the [README highlight](../README.md#-why-sbnd).
+The three rECCT on-demand / dataset experiments below correspond to the three-step training recipe described in the [README highlight](../README.md#why-sbnd).
 
 ### Experiments with on-demand data
 

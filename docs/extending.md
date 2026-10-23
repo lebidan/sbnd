@@ -143,4 +143,4 @@ The following extension surfaces are stable in the codebase but not yet document
 * **Adding a TTS variant** — implementing a new decoding strategy in [`src/tts.py`](../src/tts.py). The protocol is `decode(model, code, ym, syndromes) → preds`, plus the `name`, `suffix`, and `validate(model, code)` attributes.
 * **Adding a custom dataset format** — extending [`SBNDDataModule`](../src/data.py) to load datasets with a non-standard layout.
 
-Contributions in any of these areas are welcome — see the [Contributing](../README.md#-contributing) section in the README.
+Contributions in any of these areas are welcome — see the [Contributing](../README.md#contributing) section in the README.
