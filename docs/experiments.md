@@ -170,7 +170,7 @@ Code file: [`ldpc.ccsds.128.64.mat`](../data/codes/ldpc.ccsds.128.64.mat). This 
 
 Code file: [`polar.rptu.128.64.mat`](../data/codes/polar.rptu.128.64.mat). Dataset for the dataset-based experiment below: [`train-ml-4M-3dB.mat`](https://sdrive.cnrs.fr/s/sdkG86Terq5KCLr) (see [Pre-computed dataset format and download](training.md#pre-computed-dataset-format-and-download)). The Polar code is non-systematic and ships with a reverse-encoding matrix `Ginv`; augmentation uses `GenericPerms`. Permutations file: [`perms.polar.128.mat`](../data/perms/perms.polar.128.mat). 
 
-The rECCT model shown in the [README performance highlights](../README.md#overview) was trained in three steps, corresponding to the three rECCT experiments below:
+The rECCT model shown in the [README performance highlights](../README.md#performance-highlights) was trained in three steps, corresponding to the three rECCT experiments below:
 
 1. On-demand data at 4 dB for 512 epochs;
 2. A dataset of 4M ML error patterns with data augmentation at 3 dB for 256 epochs; the resulting model matches or outperforms SCL-8 up to 5 dB, but shows a performance kink beyond that point;

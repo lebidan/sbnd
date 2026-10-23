@@ -15,6 +15,7 @@ Syndrome-Based Neural Decoding
 </p>
 <p align="center">
 <a href="#overview">Overview</a> |
+<a href="#performance-highlights">Performance</a> |
 <a href="#features">Features</a> |
 <a href="#installation">Installation</a> |
 <a href="#getting-started">Getting Started</a> |
@@ -36,7 +37,7 @@ In syndrome-based neural decoding, a neural network estimates the channel error 
 
 `SBND` provides reference implementations of several decoder architectures, reproducible training configurations with their evaluation logs for a set of standard short codes, and the tools needed to train and evaluate new models against these baselines.
 
-<b>Performance highlights</b>
+## Performance highlights
 
 <details><summary>Decoding the (63,45,7) BCH code</summary>
 
@@ -286,7 +287,7 @@ An almost verbatim port of the official CrossMPT implementation published in the
 
 <details><summary>rECCT decoder</summary>
 
-The rECCT decoder is a recurrent implementation of ECCT which reaches comparable performance with fewer parameters (8x fewer on the (32,16) extended BCH code, see the performance highlights). It was inspired by the [PhD work](https://theses.fr/2024ESAE0065) of Gaston de Boni Rovella. Recurrent (or looped) transformers have recently received renewed attention as a parameter-efficient architecture. The decoder optionally re-injects its input before every iteration, with one learned weight per iteration (option `reinject`, see [Model-specific options](docs/training.md#model-specific-options)).
+The rECCT decoder is a recurrent implementation of ECCT which reaches comparable performance with fewer parameters (8x fewer on the (32,16) extended BCH code, see [Performance highlights](#performance-highlights)). It was inspired by the [PhD work](https://theses.fr/2024ESAE0065) of Gaston de Boni Rovella. Recurrent (or looped) transformers have recently received renewed attention as a parameter-efficient architecture. The decoder optionally re-injects its input before every iteration, with one learned weight per iteration (option `reinject`, see [Model-specific options](docs/training.md#model-specific-options)).
 
 </details>
 
