@@ -30,13 +30,13 @@ Syndrome-Based Neural Decoding
 
 ---
 
-## 👀 Why SBND? 
+## Why SBND? 
 
 Syndrome-based neural decoding is a promising approach for soft-decision decoding of short, high-rate codes, but the field is still wide open. Performance often lags behind classical decoders like OSD or Chase-2, scaling laws are poorly understood, and more parameter-efficient architectures are yet to be found.
 
 `SBND` is built for researchers who want to close that gap. It ships with multiple architectures, reproducible baselines facilitating benchmarking, a flexible data pipeline, and a clean training infrastructure — everything you need to run experiments, test new ideas and models, and push neural decoders further.
 
-<b> ⭐ Performance highlights ⭐</b>
+<b>Performance highlights</b>
 
 <details><summary>Decoding the (63,45,7) BCH code</summary>
 
@@ -134,7 +134,7 @@ Companion TTS evaluation logs: [self-boosting (8 iters)](https://github.com/lebi
 
 Help us improve on those baselines! 
 
-## 🎯 Features
+## Features
 
 * **Multiple decoder architectures** — ships with `StackedGRU`, `ECCT`, `CrossMPT`, and `rECCT` (a recurrent ECCT), all sharing a common interface
 * **Easy to extend** — add your own architecture by subclassing the [shared `BaseDecoder`](https://github.com/lebidan/sbnd/blob/main/src/decoder.py) and using the [template decoder](https://github.com/lebidan/sbnd/blob/main/src/mocked.py) as a starting point
@@ -148,7 +148,7 @@ Help us improve on those baselines!
 * **Test-time scaling** — boost decoding performance at inference time with sequential (self-boosting), parallel (test-time augmentation) or list (AfterBurner) variants
 * **Experiment tracking** — built-in CSV and [Weights & Biases](https://wandb.ai) logging with gradient/weight monitoring
 
-## 💻 Installation
+## Installation
 
 To set up a local development environment, we recommend using [uv](https://docs.astral.sh/uv/), which can be installed following [their instructions](https://docs.astral.sh/uv/getting-started/installation/).
 
@@ -190,7 +190,7 @@ To pin a specific CUDA variant when the PyPI default does not match your driver:
 pip install -e ".[wandb]" --extra-index-url https://download.pytorch.org/whl/cu128
 ```
 
-## 🚀 Getting Started 
+## Getting Started 
 
 ### Verify your installation
 
@@ -249,7 +249,7 @@ For example, the following single prompt runs an end-to-end training + evaluatio
 See [`AGENTS.md`](AGENTS.md) for the cross-agent entry point and [`skills/`](skills/) for the individual skill files (`sbnd-train`, `sbnd-eval`, `sbnd-new-exp`).
 
 
-## 🔍 Supported Codes & Decoders
+## Supported Codes & Decoders
 
 ### Codes
 
@@ -322,7 +322,7 @@ SBND supports two decoding modes, selected via the shared `error_space` paramete
 
 Both the decoder and the datamodule default to `"codeword"`, so standard SBND experiments need no extra config. To switch to iSBND mode, set `error_space: "message"` on both the `decoder:` and `data:` blocks of your experiment config (settings must agree, and a mismatch is caught at `trainer.fit` start). See for example this [Reed-Muller decoding experiment](https://github.com/lebidan/sbnd/blob/main/conf/exp/recct-rm-32-16-ml-4m-3dB.yaml).
 
-## 📚 Documentation
+## Documentation
 
 The reference documentation lives under [`docs/`](docs):
 
@@ -331,7 +331,7 @@ The reference documentation lives under [`docs/`](docs):
 * [**Extending SBND**](docs/extending.md) — adding your own decoder architecture: the `BaseDecoder` template, conventions, a walk-through of the mocked decoder example, and how to wire it into an experiment.
 * [**Experiments**](docs/experiments.md) — index of the shipped experiments under [`conf/exp/`](conf/exp), grouped by code, with links to the corresponding evaluation logs in [`log/test/`](log/test).
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 sbnd/
@@ -358,11 +358,11 @@ sbnd/
 └── LICENSE                     # MIT License
 ```
 
-## ⚖️ License
+## License
 
 This project is licensed under the [MIT License](https://github.com/lebidan/sbnd/blob/main/LICENSE).
 
-## 🛠 Contributing
+## Contributing
 
 Contributions are welcome:
 
@@ -379,7 +379,7 @@ mypy src/                            # type checking
 
 We're happy to review and discuss.
 
-## 🤝 Acknowledgments
+## Acknowledgments
 
 Much of this code was developed within the framework of the [ANR-21 AI4CODE project](https://ai4code.projects.labsticc.fr/). Earlier versions of this codebase were used to obtain the results reported in our [ICMLCN 2025 paper](https://arxiv.org/abs/2502.10183) as well as some of the results presented in Chapters 3 and 4 of [Ahmad Ismail PhD thesis](https://theses.fr/2025IMTA0515).
 
