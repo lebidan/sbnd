@@ -14,7 +14,7 @@ Syndrome-Based Neural Decoding
 <img src="https://img.shields.io/badge/version-0.2.0-lightgrey" alt="Version"/>
 </p>
 <p align="center">
-<a href="#why-sbnd">Overview</a> |
+<a href="#overview">Overview</a> |
 <a href="#features">Features</a> |
 <a href="#installation">Installation</a> |
 <a href="#getting-started">Getting Started</a> |
@@ -30,11 +30,11 @@ Syndrome-Based Neural Decoding
 
 ---
 
-## Why SBND? 
+## Overview
 
-Syndrome-based neural decoding is a promising approach for soft-decision decoding of short, high-rate codes, but the field is still wide open. Performance often lags behind classical decoders like OSD or Chase-2, scaling laws are poorly understood, and more parameter-efficient architectures are yet to be found.
+In syndrome-based neural decoding, a neural network estimates the channel error pattern from the syndrome and the reliability of the received values. The approach is well suited to soft-decision decoding of short, high-rate codes, but many questions remain open. Error rates often lag behind those of classical decoders such as ordered-statistics decoding (OSD) or Chase-2 decoding, scaling laws are poorly understood, and more parameter-efficient architectures remain to be found.
 
-`SBND` is built for researchers who want to close that gap. It ships with multiple architectures, reproducible baselines facilitating benchmarking, a flexible data pipeline, and a clean training infrastructure — everything you need to run experiments, test new ideas and models, and push neural decoders further.
+`SBND` provides reference implementations of several decoder architectures, reproducible training configurations with their evaluation logs for a set of standard short codes, and the tools needed to train and evaluate new models against these baselines.
 
 <b>Performance highlights</b>
 
@@ -42,8 +42,8 @@ Syndrome-based neural decoding is a promising approach for soft-decision decodin
 
 <img alt="BCH(63,45,7) performance" src="https://raw.githubusercontent.com/lebidan/sbnd/main/media/fer_63_45.png?raw=true" width=90%>
 
-- Training ECCT with SBND brings ~two-order of magnitude WER improvement wrt previously published results
-- Same or better performance with half the number of parameters when switching to our recurrent ECCT model
+- Training ECCT with SBND brings about two orders of magnitude WER improvement with respect to previously published results
+- Same or better performance with half the number of parameters (0.61M vs 1.20M) when switching to our recurrent ECCT model
 - Performance is within 0.2 dB of MLD and matches Chase-2 decoding with 64 test patterns
 
 | Configuration file | Evaluation log |
@@ -61,9 +61,9 @@ Note: The first experiment closely follows the original training setup from [Cho
 <img alt="eBCH(32,16,8) performance" src="https://raw.githubusercontent.com/lebidan/sbnd/main/media/fer_32_16.png?raw=true" width=90%>
 
 - WER performance within 0.2 dB of MLD and comparable to Chase-2 decoding with 64 test patterns
-- Outperforms the original ECCT and CrossMPT decoders with 8x fewer parameters
+- Outperforms the original ECCT and CrossMPT decoders with 8x fewer parameters (0.15M vs 1.19M for both ECCT and CrossMPT with N = 6 layers and d = 128)
 
-Note: The comparison between results for the (31,16,7) and (32,16,8) codes is reasonable as both codes have very close MLD performance down to WER = 1E-4. The extended code progressively takes over at high SNRs. Compare with the results in Table 3 and Fig. 11 from [the CrossMPT ICLR 2025 paper](https://openreview.net/forum?id=gFvRRCnQvX).
+Note: The comparison between results for the (31,16,7) and (32,16,8) codes is reasonable as both codes have very close MLD performance down to WER = 1E-4. The extended code progressively takes over at high SNRs. Compare with the results in Table 3 and Fig. 11 of [Park et al., 2025](https://openreview.net/forum?id=gFvRRCnQvX).
 
 | Configuration file | Evaluation log |
 | --- | --- |
@@ -78,7 +78,7 @@ Note: The comparison between results for the (31,16,7) and (32,16,8) codes is re
 - High-SNR WER performance within 1.0 dB or less of MLD (but still **much room left for improvement**)
 - Matches or outperforms BP with 100 iterations
 
-This very nice and strong short quasi-cyclic LDPC code was designed at [RPTU](https://rptu.de/channel-codes/channel-codes-database/more-ldpc-codes#c94700) and used as example in their [Saturated Min-Sum decoding](https://www.date-conference.com/proceedings-archive/2016/pdf/0760.pdf) DATE 2016 paper. 
+This very nice and strong short quasi-cyclic LDPC code was designed at [RPTU](https://rptu.de/channel-codes/channel-codes-database/more-ldpc-codes#c94700) and used as an example in [Scholl et al., 2016](https://www.date-conference.com/proceedings-archive/2016/pdf/0760.pdf) on saturated min-sum decoding.
 
 | Configuration file | Evaluation log |
 | --- | --- |
@@ -92,10 +92,9 @@ This very nice and strong short quasi-cyclic LDPC code was designed at [RPTU](ht
 
 - rECCT closely matches Flooding BP with 100 iterations (or Layered BP with 40 iterations)
 
-This right-irregular quasi-cyclic LDPC code is the shortest among the three LDPC codes designed by the [JPL team, MILCOM 2007](https://ieeexplore.ieee.org/document/4454752)
-for telecommand links in ground-to-space and space-to-space communications (see [CCSDS TC Synchronization and Channel Coding Blue Book](https://ccsds.org/Pubs/231x0b4e1.pdf)).
+This right-irregular quasi-cyclic LDPC code is the shortest among the three LDPC codes designed at JPL by [Divsalar et al., 2007](https://ieeexplore.ieee.org/document/4454752) for telecommand links in ground-to-space and space-to-space communications (see [CCSDS TC Synchronization and Channel Coding Blue Book](https://ccsds.org/Pubs/231x0b4e1.pdf)).
 
-While current model performance is not record-breaking, the BER in the eval log below is better than that reported in Table 1 and Fig. 4(c) of [Park et al, ICLR 2025](https://openreview.net/pdf?id=gFvRRCnQvX), which uses a model with more than twice the number of trainable parameters.
+While current model performance is not record-breaking, the BER in the eval log below is better than that reported in Table 1 and Fig. 4(c) of [Park et al., 2025](https://openreview.net/pdf?id=gFvRRCnQvX), which uses a model with nearly twice the number of trainable parameters (1.24M for CrossMPT with N = 6 layers and d = 128, vs 0.65M for rECCT).
 
 | Configuration file | Evaluation log |
 | --- | --- |
@@ -107,26 +106,19 @@ While current model performance is not record-breaking, the BER in the eval log 
 
 <img alt="Polar(128,64,8) performance" src="https://raw.githubusercontent.com/lebidan/sbnd/main/media/fer_polar_128_64.png?raw=true" width=90%>
 
-- rECCT closely matches Successive-Cancellation List decoding with list size 8 up to 5 dB (see Note below)
+- rECCT closely matches Successive-Cancellation List decoding with list size 8 up to 5 dB
 - [Test-time scaling](./docs/evaluation.md#3-test-time-scaling) yields a notable performance boost
 - Both TTS variants perform comparably, with a slight advantage for Self-Boosting at low SNRs
 
 This Polar code was designed at [RPTU](https://rptu.de/channel-codes/channel-codes-database/polar-codes). It has a relatively low minimum distance for its parameters — the RM and extended BCH codes of the same length and dimension have minimum distance 16 and 22, respectively — which makes it easier to decode. Yet the model performs surprisingly well given the astronomical size of its syndrome space and the fact that it only sees a tiny fraction of it during training.
 
-Specifically, this rECCT model was trained in three steps:
-1. On-demand data at 4 dB for 512 epochs;
-2. A dataset of 4M ML error patterns with data augmentation at 3 dB for 256 epochs; the resulting model matches or outperforms SCL-8 up to 5 dB, but shows a performance kink beyond that point;
-3. On-demand data at 5 dB for 64 epochs to recover high-SNR performance at the cost of a slight low-SNR degradation.
-
-The [`+continue` command-line option](./docs/training.md#resuming-and-continuing-training) was used to continue training from one step to the next. 
+This rECCT model was trained in three steps, starting each step from the previous checkpoint. The training recipe is described in [docs/experiments.md](./docs/experiments.md#polar-128-64-8-from-rptu).
 
 | Configuration file | Evaluation log |
 | --- | --- |
 | [rECCT, step 1](https://github.com/lebidan/sbnd/blob/main/conf/exp/recct-polar-rptu-128-64-on-demand-4dB.yaml) | [eval step 1](https://github.com/lebidan/sbnd/blob/main/log/test/recct-polar-rptu-128-64-on-demand-4dB-512epochs-atomic-yogurt-1978.csv) |
 | [rECCT, step 2](https://github.com/lebidan/sbnd/blob/main/conf/exp/recct-polar-rptu-128-64-ml-4m-3dB-aug.yaml) | [eval step 2](https://github.com/lebidan/sbnd/blob/main/log/test/recct-polar-rptu-128-64-ml-4m-3dB-aug-256epochs-sith-nerf-herder-1986.csv) |
 | [rECCT, step 3](https://github.com/lebidan/sbnd/blob/main/conf/exp/recct-polar-rptu-128-64-on-demand-5dB.yaml) | [eval step 3](https://github.com/lebidan/sbnd/blob/main/log/test/recct-polar-rptu-128-64-on-demand-5dB-64epochs-carbonite-cruiser-1989.csv) |
-
- > **Note:** This training recipe still has room for improvement. With a better training data mix, we expect the residual performance gap at high SNR to disappear without hurting low-SNR performance.
 
 Companion TTS evaluation logs: [self-boosting (8 iters)](https://github.com/lebidan/sbnd/blob/main/log/test/recct-polar-rptu-128-64-on-demand-5dB-64epochs-carbonite-cruiser-1989-sb8.csv), [test-time augmentation (8 perms)](https://github.com/lebidan/sbnd/blob/main/log/test/recct-polar-rptu-128-64-on-demand-5dB-64epochs-carbonite-cruiser-1989-tta8.csv).
 
@@ -136,17 +128,12 @@ Help us improve on those baselines!
 
 ## Features
 
-* **Multiple decoder architectures** — ships with `StackedGRU`, `ECCT`, `CrossMPT`, and `rECCT` (a recurrent ECCT), all sharing a common interface
-* **Easy to extend** — add your own architecture by subclassing the [shared `BaseDecoder`](https://github.com/lebidan/sbnd/blob/main/src/decoder.py) and using the [template decoder](https://github.com/lebidan/sbnd/blob/main/src/mocked.py) as a starting point
-* **Two decoding modes** — standard codeword-level SBND, or message-level [iSBND](https://arxiv.org/abs/2402.13948) for non-systematic codes
-* **Hydra configuration** — every aspect of training is configurable via composable YAML files
-* **Flexible training data** — train with on-demand data or pre-computed datasets, with deterministic per-batch sample mixing across multiple SNRs or training sets
-* **Per-group loss reweighting** — independently [emphasize each SNR or dataset](https://arxiv.org/abs/2210.14103) in the loss, on top of batch composition
-* **Data augmentation** — [leverage code automorphisms](https://arxiv.org/abs/2605.03620) to increase training diversity
-* **Multi-GPU** — distributed training via PyTorch Lightning DDP
-* **Monte Carlo evaluation** — evaluate trained models over configurable Eb/N0 ranges with BER/WER reporting
-* **Test-time scaling** — boost decoding performance at inference time with sequential (self-boosting), parallel (test-time augmentation) or list (AfterBurner) variants
-* **Experiment tracking** — built-in CSV and [Weights & Biases](https://wandb.ai) logging with gradient/weight monitoring
+* Four decoder architectures, StackedGRU, ECCT, CrossMPT and rECCT (a recurrent ECCT), sharing a common interface. New architectures subclass [`BaseDecoder`](https://github.com/lebidan/sbnd/blob/main/src/decoder.py), starting from the [template decoder](https://github.com/lebidan/sbnd/blob/main/src/mocked.py).
+* Two decoding modes: codeword-level SBND, and message-level iSBND ([de Boni Rovella & Benammar, 2023](https://arxiv.org/abs/2402.13948)) for non-systematic codes.
+* Training data generated on demand or read from pre-computed datasets, with deterministic per-batch mixing of several SNRs or datasets, optional per-group loss weights ([Wiesmayr et al., 2022](https://arxiv.org/abs/2210.14103)), and data augmentation by code automorphisms ([Le Bidan et al., 2026](https://arxiv.org/abs/2605.03620)).
+* Configuration with [Hydra](https://hydra.cc) (composable YAML files) and multi-GPU training with PyTorch Lightning DDP.
+* Monte Carlo evaluation of BER and WER over a range of Eb/N0 values, with three test-time scaling methods: sequential (self-boosting), parallel (test-time augmentation) and list-based (AfterBurner).
+* Logging to CSV files and [Weights & Biases](https://wandb.ai), including gradient and weight statistics.
 
 ## Installation
 
@@ -218,11 +205,11 @@ sbnd-train exp=ecct-bch-63-45-ml-4m-2dB-aug gpus=2 max_epochs=64 lr=0.001
 
 Training artifacts (Hydra config, logs, checkpoints) are saved under `./log/train/runs/YYYY-MM-DD_HH-MM-SS/`. Two checkpoints are written to the `checkpoints/` run subdirectory: `last.ckpt` (latest epoch) and `<exp-file-name>-<max_epochs>epochs-<wandb-run-name>.ckpt` (best model by validation accuracy).
 
-→ Full reference, including how to create your own training experiment config: see [docs/training.md](docs/training.md).
+The full reference, including how to create your own training experiment config, is in [docs/training.md](docs/training.md).
 
 ### Evaluate a model
 
-`sbnd-test` evaluates a trained checkpoint through Monte-Carlo simulation over a range of Eb/N0 values, reporting **Word Error Rate (WER)** and **Bit Error Rate (BER)** at each SNR point. A first evaluation pass requires only the model checkpoint:
+`sbnd-test` evaluates a trained checkpoint through Monte Carlo simulation over a range of Eb/N0 values, reporting **Word Error Rate (WER)** and **Bit Error Rate (BER)** at each SNR point. A first evaluation pass requires only the model checkpoint:
 
 ```
 sbnd-test /path/to/my-model.ckpt
@@ -234,20 +221,17 @@ Repeated evaluations with the same set of options can be grouped into a preset u
 sbnd-test /path/to/my-model.ckpt eval=bch-31-21
 ```
 
-`sbnd-test` also supports hard-decision decoding emulation (the `hdd` flag) and three test-time scaling variants — sequential **self-boosting**, parallel **test-time augmentation** and list-based **AfterBurner decoding** — that exchange extra inference compute for lower error rates. Iterative decoders (rECCT, GRU) can also be evaluated at a different iteration count than they were trained with (`n_iters`), with syndrome-based early exit.
+`sbnd-test` also supports hard-decision decoding emulation (the `hdd` flag) and three test-time scaling (TTS) methods, sequential **self-boosting**, parallel **test-time augmentation** and list-based **AfterBurner decoding**, which trade extra inference compute for lower error rates. Iterative decoders (rECCT, GRU) can also be evaluated at a different iteration count than they were trained with (`n_iters`), with syndrome-based early exit.
 
-→ Full reference, options table, and TTS configuration: see [docs/evaluation.md](docs/evaluation.md).
+The full reference, with the options table and the TTS configuration, is in [docs/evaluation.md](docs/evaluation.md).
 
 ### Train and evaluate with an agent
 
-SBND ships with a set of [agent skills](skills/) (Anthropic Agent Skills format, plain markdown) that let a coding assistant — Claude Code, Cursor, Codex CLI, … — drive training and evaluation through a short natural-language dialog. The agent picks the right `exp=` preset, applies overrides, resolves the resulting checkpoint, infers the matching `eval=` preset from the code, translates plain-English TTS/HDD requests into Hydra overrides, and reports the WER/BER sweep.
-
-For example, the following single prompt runs an end-to-end training + evaluation pass on the rECCT dev-test experiment with a couple of overrides:
+The [`skills/`](skills/) folder contains agent skills (plain Markdown, Anthropic Agent Skills format) that let a coding assistant such as Claude Code, Cursor or Codex CLI run training and evaluation from a natural-language request. For example:
 
 > Run the rECCT dev-test experiment for 8 epochs on 4 CPUs, and evaluate it.
 
-See [`AGENTS.md`](AGENTS.md) for the cross-agent entry point and [`skills/`](skills/) for the individual skill files (`sbnd-train`, `sbnd-eval`, `sbnd-new-exp`).
-
+See [`AGENTS.md`](AGENTS.md) for the entry point.
 
 ## Supported Codes & Decoders
 
@@ -263,7 +247,7 @@ A collection of standard BCH, extended BCH, QC-LDPC, Reed-Muller and Polar codes
 | `k` | ✓ | Message length |
 | `G` | ✓ | Generator matrix (k × n) |
 | `H` | ✓ | Parity-check matrix (m × n, with m ≥ n-k)|
-| `Ginv` |  | Inverse-encoding matrix (n × k) such that `G · Ginv = I_k` — used to recover the message from a decoded codeword, and required to train/evaluate in message-level mode (see [Decoding modes](#decoding-modes)). If omitted, it is built automatically when the generator matrix is systematic (identity block at the beginning or end of `G`). For **non-systematic** codes, `Ginv` must be provided explicitly in the `.mat` file. |
+| `Ginv` |  | Inverse-encoding matrix (n × k) such that `G · Ginv = I_k`, used to recover the message from a decoded codeword, and required to train/evaluate in message-level mode (see [Decoding modes](#decoding-modes)). If omitted, it is built automatically when the generator matrix is systematic (identity block at the beginning or end of `G`). For **non-systematic** codes, `Ginv` must be provided explicitly in the `.mat` file. |
 | `dmin` |  | Minimum distance (defaults to `None` if not provided) |
 | `name` |  | Code family name (defaults to `"Linear"`) |
 
@@ -302,7 +286,7 @@ An almost verbatim port of the official CrossMPT implementation published in the
 
 <details><summary>rECCT decoder</summary>
 
-The rECCT decoder is a recurrent implementation of ECCT which can reach comparable performance with fewer parameters (up to 10x fewer parameters in certain cases). It was inspired by the [PhD work](https://theses.fr/2024ESAE0065) of Gaston de Boni Rovella. There has been renewed interest recently in recurrent transformers as a parameter-efficient architecture (see, e.g., the many papers on looped transformers that have flourished on arXiv since 2023). The decoder optionally re-injects its input before every iteration, with one learned weight per iteration (option `reinject`, see [Model-specific options](docs/training.md#model-specific-options)).
+The rECCT decoder is a recurrent implementation of ECCT which reaches comparable performance with fewer parameters (8x fewer on the (32,16) extended BCH code, see the performance highlights). It was inspired by the [PhD work](https://theses.fr/2024ESAE0065) of Gaston de Boni Rovella. Recurrent (or looped) transformers have recently received renewed attention as a parameter-efficient architecture. The decoder optionally re-injects its input before every iteration, with one learned weight per iteration (option `reinject`, see [Model-specific options](docs/training.md#model-specific-options)).
 
 </details>
 
@@ -310,15 +294,15 @@ The rECCT decoder is a recurrent implementation of ECCT which can reach comparab
 
 All decoders inherit from the abstract [`BaseDecoder`](https://github.com/lebidan/sbnd/blob/main/src/decoder.py) class in [`src/decoder.py`](https://github.com/lebidan/sbnd/blob/main/src/decoder.py), which defines the shared interface: `forward(ym, s) → logits`, where `ym` is the normalized channel magnitude `|y|/max(|y|)`, `s` is the bipolar syndrome vector, and `logits` is the decoder prediction of the target error pattern. 
 
-To implement your own decoder, inherit from `BaseDecoder` and use [`src/mocked.py`](src/mocked.py) as a minimal starting template — see [docs/extending.md](docs/extending.md) for the full description of the interface and conventions.
+To implement your own decoder, inherit from `BaseDecoder` and use [`src/mocked.py`](src/mocked.py) as a minimal starting template. See [docs/extending.md](docs/extending.md) for the full description of the interface and conventions.
 
 ### Decoding modes
 
 SBND supports two decoding modes, selected via the shared `error_space` parameter on both the decoder and the datamodule:
 
-1. **Codeword-level decoding** (`error_space: "codeword"`, default) — the standard SBND setup. The decoder is trained to predict the full n-bit error pattern `e_cw = c - c_hat` where `c` is the transmitted codeword and `c_hat` is the decoder decision on `c`. Evaluation reports the **WER on the decoded codeword** and the **BER on the decoded message**, with the codeword-to-message mapping inverted via `Ginv` when the code is non-systematic.
+1. **Codeword-level decoding** (`error_space: "codeword"`, default): the standard SBND setup. The decoder is trained to predict the full n-bit error pattern `e_cw = c - c_hat` where `c` is the transmitted codeword and `c_hat` is the decoder decision on `c`. Evaluation reports the **WER on the decoded codeword** and the **BER on the decoded message**, with the codeword-to-message mapping inverted via `Ginv` when the code is non-systematic.
 
-2. **Message-level decoding** (`error_space: "message"`), which we abbreviate as **iSBND** (information-based SBND), proposed in [De Boni Rovella & Benammar, GLOBECOM 2023](https://arxiv.org/abs/2402.13948). The decoder directly estimates the k-bit error pattern on the information message, computed as `e_msg = Ginv · e_cw`. This mode is particularly well-suited to non-systematic codes, but can also bring a small WER gain on systematic codes: it is generally slightly easier for the model to learn the partial error pattern restricted to the first or last k bits of the codeword (the message part), than the full n-bit error pattern. For models trained in iSBND mode, evaluation reports both **WER and BER on the decoded message**.
+2. **Message-level decoding** (`error_space: "message"`), which we abbreviate as **iSBND** (information-based SBND), proposed by [de Boni Rovella & Benammar, 2023](https://arxiv.org/abs/2402.13948). The decoder directly estimates the k-bit error pattern on the information message, computed as `e_msg = Ginv · e_cw`. This mode is particularly well-suited to non-systematic codes, but can also bring a small WER gain on systematic codes: it is generally slightly easier for the model to learn the partial error pattern restricted to the first or last k bits of the codeword (the message part), than the full n-bit error pattern. For models trained in iSBND mode, evaluation reports both **WER and BER on the decoded message**.
 
 Both the decoder and the datamodule default to `"codeword"`, so standard SBND experiments need no extra config. To switch to iSBND mode, set `error_space: "message"` on both the `decoder:` and `data:` blocks of your experiment config (settings must agree, and a mismatch is caught at `trainer.fit` start). See for example this [Reed-Muller decoding experiment](https://github.com/lebidan/sbnd/blob/main/conf/exp/recct-rm-32-16-ml-4m-3dB.yaml).
 
@@ -326,10 +310,10 @@ Both the decoder and the datamodule default to `"codeword"`, so standard SBND ex
 
 The reference documentation lives under [`docs/`](docs):
 
-* [**Training a model**](docs/training.md) — creating a training experiment config: specifying code, data (on-demand or pre-computed, with multi-SNR / multi-file mixing and optional per-group loss reweighting; augmentation; dataset format and download), decoder, optimizer/scheduler, precision, resume vs. continue, logging, and end-of-training test evaluation.
-* [**Evaluating a model**](docs/evaluation.md) — running `sbnd-test`: the basic Monte-Carlo SNR sweep to measure WER and BER, hard-decision decoding optional post-filtering, and the test-time scaling variants (self-boosting, TTA and AfterBurner), and the iteration-count override for iterative decoders.
-* [**Extending SBND**](docs/extending.md) — adding your own decoder architecture: the `BaseDecoder` template, conventions, a walk-through of the mocked decoder example, and how to wire it into an experiment.
-* [**Experiments**](docs/experiments.md) — index of the shipped experiments under [`conf/exp/`](conf/exp), grouped by code, with links to the corresponding evaluation logs in [`log/test/`](log/test).
+* [Training a model](docs/training.md): creating a training experiment config, which specifies code, data (on-demand or pre-computed, with multi-SNR / multi-file mixing and optional per-group loss reweighting; augmentation; dataset format and download), decoder, optimizer/scheduler, precision, resume vs. continue, logging, and end-of-training test evaluation.
+* [Evaluating a model](docs/evaluation.md): running `sbnd-test`, the basic Monte Carlo SNR sweep to measure WER and BER, optional hard-decision post-filtering, the test-time scaling methods (self-boosting, TTA and AfterBurner), and the iteration-count override for iterative decoders.
+* [Extending SBND](docs/extending.md): adding your own decoder architecture, with the `BaseDecoder` template, conventions, a walk-through of the mocked decoder example, and how to wire it into an experiment.
+* [Experiments](docs/experiments.md): index of the shipped experiments under [`conf/exp/`](conf/exp), grouped by code, with links to the corresponding evaluation logs in [`log/test/`](log/test).
 
 ## Project Structure
 
@@ -377,24 +361,22 @@ black src/                           # auto-format
 mypy src/                            # type checking
 ```
 
-We're happy to review and discuss.
-
 ## Acknowledgments
 
-Much of this code was developed within the framework of the [ANR-21 AI4CODE project](https://ai4code.projects.labsticc.fr/). Earlier versions of this codebase were used to obtain the results reported in our [ICMLCN 2025 paper](https://arxiv.org/abs/2502.10183) as well as some of the results presented in Chapters 3 and 4 of [Ahmad Ismail PhD thesis](https://theses.fr/2025IMTA0515).
+Much of this code was developed within the framework of the [ANR-21 AI4CODE project](https://ai4code.projects.labsticc.fr/). Earlier versions of this codebase were used to obtain the results reported in our [ICMLCN 2025 paper](https://arxiv.org/abs/2502.10183) as well as some of the results presented in Chapters 3 and 4 of [Ahmad Ismail's PhD thesis](https://theses.fr/2025IMTA0515).
 
 The following decoder implementations are adapted from their original authors' code:
 
-* **ECCT** — adapted from [yoniLc/ECCT](https://github.com/yoniLc/ECCT) (MIT License), by Y. Choukroun and L. Wolf
-* **CrossMPT** — adapted from [iil-postech/crossmpt](https://github.com/iil-postech/crossmpt), by S.-J. Park et al.
+* ECCT, adapted from [yoniLc/ECCT](https://github.com/yoniLc/ECCT) (MIT License), by Y. Choukroun and L. Wolf
+* CrossMPT, adapted from [iil-postech/crossmpt](https://github.com/iil-postech/crossmpt), by S.-J. Park et al.
 
-You may also want to pay a visit to [Gaston de Boni Rovella's github repository](https://github.com/gastondeboni/Syndrome_Based_Neural_Decoding) for another SBND decoding implementation based on [Keras](https://keras.io/) and [TensorFlow](https://www.tensorflow.org/).
+[Gaston de Boni Rovella's repository](https://github.com/gastondeboni/Syndrome_Based_Neural_Decoding) provides another SBND implementation, based on [Keras](https://keras.io/) and [TensorFlow](https://www.tensorflow.org/).
 
 This project has greatly benefited from the following open-source software:
 
-* [PyTorch](https://pytorch.org/) — deep learning framework
-* [Lightning](https://lightning.ai/) — training infrastructure and multi-GPU support
-* [Hydra](https://hydra.cc/) — configuration management
+* [PyTorch](https://pytorch.org/) (deep learning framework)
+* [Lightning](https://lightning.ai/) (training infrastructure and multi-GPU support)
+* [Hydra](https://hydra.cc/) (configuration management)
 
 ## Citation
 
