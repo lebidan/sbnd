@@ -27,11 +27,11 @@ Syndrome-Based Neural Decoding
 <a href="#contributing">Contributing</a>
 </p>
 
-**`SBND`** is a PyTorch/Lightning framework for training and evaluating syndrome-based neural decoders for linear error-correcting codes.
-
 ---
 
 ## Overview
+
+**`SBND`** is a PyTorch/Lightning framework for training and evaluating syndrome-based neural decoders for linear error-correcting codes.
 
 In syndrome-based neural decoding, a neural network estimates the channel error pattern from the syndrome and the reliability of the received values. The approach is well suited to soft-decision decoding of short, high-rate codes, but many questions remain open. Error rates often lag behind those of classical decoders such as ordered-statistics decoding (OSD) or Chase-2 decoding, scaling laws are poorly understood, and more parameter-efficient architectures remain to be found.
 
