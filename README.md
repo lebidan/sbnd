@@ -337,6 +337,7 @@ sbnd/
 │   ├── tts.py                  # Decoding strategies: no-TTS baseline, SelfBoosting, TTA, AfterBurner
 │   ├── lr_sched.py             # LR schedulers (CosineWarmupLR, WarmupStableDecayLR)
 │   ├── train.py / test.py      # sbnd-train and sbnd-test entry points
+│   ├── strat_test.py           # sbnd-strat-test: weight-stratified evaluation
 │   └── utils.py                # Logging utilities
 ├── pyproject.toml              # Package metadata and dependencies
 ├── CITATION.cff                # Citation metadata (used by GitHub's "Cite this repository")

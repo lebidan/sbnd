@@ -23,7 +23,7 @@ These are the source of truth — read them rather than rely on guesses, and kee
 ## Environment
 
 - Local virtualenv at `.venv/` with all dependencies installed, including dev tools `black` and `mypy` (configured in `pyproject.toml`).
-- No test suite yet.
+- No test suite yet; `tests/` holds standalone self-checks, run as scripts (e.g. `.venv/bin/python tests/test_strat_sampler.py`).
 
 ## When modifying source code
 

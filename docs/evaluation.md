@@ -1,6 +1,6 @@
 # Evaluating a model
 
-This document describes how to evaluate a trained SBND model with `sbnd-test`. It is organized in four sections: the basic Monte-Carlo SNR sweep to measure WER and BER, the optional hard-decision decoding (HDD) emulation used as a cheap post-filter, the test-time scaling (TTS) variants that trade extra inference compute for lower error rates, and the iteration-count override for iterative decoders.
+This document describes how to evaluate a trained SBND model with `sbnd-test`. It is organized in five sections: the basic Monte-Carlo SNR sweep to measure WER and BER, the optional hard-decision decoding (HDD) emulation used as a cheap post-filter, the test-time scaling (TTS) variants that trade extra inference compute for lower error rates, the iteration-count override for iterative decoders, and the weight-stratified evaluation (`sbnd-strat-test`) for WERs out of reach of plain Monte Carlo.
 
 **See also:** [README](../README.md#getting-started) · [Training a model](training.md) · [Extending SBND](extending.md) · [Experiments](experiments.md)
 
@@ -16,6 +16,9 @@ This document describes how to evaluate a trained SBND model with `sbnd-test`. I
    - [AfterBurner decoding](#afterburner-decoding)
    - [Combining TTS with HDD](#combining-tts-with-hdd)
 4. [Overriding the iteration count](#4-overriding-the-iteration-count)
+5. [Weight-stratified evaluation](#5-weight-stratified-evaluation)
+   - [Output files](#output-files)
+   - [Options](#options-1)
 
 ## 1. Basic evaluation
 
@@ -85,6 +88,8 @@ The active TTS strategy, an `n_iters` override, the precision and the HDD flag a
 ## 2. Hard-decision decoding emulation
 
 Setting `hdd=true` enables a hard-decision decoding emulation in which any prediction is declared successful as soon as the number of bit errors in the error pattern inferred by the SBND model is at most `t = ⌊(d_min − 1) / 2⌋`, the bounded-distance correction radius of the code. 
+
+The WER is exactly that of the model followed by a real bounded-distance decoder (BDD): a BDD returns the sent codeword if and only if the model's residual error has weight at most `t`, and any other outcome (decoding failure or miscorrection) is a frame error. The BER is optimistic: on failed frames it counts the model's bit errors, while a real BDD that miscorrects adds errors (on BCH(63,45), the real BDD's BER is 10-13 % higher at 3-5 dB).
 
 HDD emulation requires:
 
@@ -214,3 +219,62 @@ Results go to a `-it<n>`-suffixed CSV (e.g. `<model>-it20.csv`, early exit impli
 - The option only applies to `RECCT` and `StackedGRU` models trained with `error_space=codeword` (the early exit needs a codeword-space prediction to check the syndrome). Any other decoder or a `message`-space model raises an error.
 - For a multi-layer `RECCT` (`n_layers > 1`), `n_iters` sets the loop count of every layer, and only the iterations of the last layer's loop are candidates: the earlier layers' states are not final answers.
 - A `RECCT` trained with `reinject: true` (learned input re-injection, see [Model-specific options](training.md#model-specific-options)) can be evaluated at a count lower than or equal to its trained count, but not above it: it has one learned re-injection weight per trained iteration and none for extra ones, so a higher `n_iters` raises an error.
+
+## 5. Weight-stratified evaluation
+
+At high SNR, plain Monte Carlo becomes too slow: a WER of 1e-9 needs about 5e11 simulated words to see 500 errors. `sbnd-strat-test` is a variance-reduction Monte Carlo simulator for this regime. It uses stratified sampling, a close relative of importance sampling: the WER is split over the number `w` of hard-decision errors in the received word,
+
+```
+WER = sum_w P_w * F_w
+```
+
+where `P_w` is the probability of exactly `w` hard errors (Binomial(n, p) with `p = Q(1/sigma)`, computed exactly) and `F_w` is the decoder's failure rate on words with exactly `w` hard errors. Each weight `w` (a stratum) is simulated separately, on words drawn conditionally on `w`, and weighted by its exact `P_w`; there is no likelihood ratio to compute. Since most of the simulation effort goes to the few weights that dominate the WER, and almost none to the error-free words that make up most of the channel output at high SNR, WERs down to 1e-10 or lower are within reach of a single GPU.
+
+Apart from the way words are drawn, `sbnd-strat-test` is `sbnd-test`: it takes the same command line and the same options (eval presets, `tts`, `hdd`, `n_iters`, `precision`, `seed`, `batch_size`, `num_workers`, `output_dir`), and the sampled words go through the same input path, decoding and error counting. `F_w` is therefore `sbnd-test`'s WER restricted to the words with `w` hard errors. Only `num_batches` and `min_cw_errors` are ignored: the stopping rule below takes their place.
+
+```
+sbnd-strat-test /path/to/my-model.ckpt eval=bch-63-45 snr_min=4 snr_max=9 \
+  precision=bf16-mixed hdd=true
+```
+
+The base config [`conf/strat_test.yaml`](../conf/strat_test.yaml) builds on `conf/test.yaml` and only adds the sampler's options. It keeps the Eb/N0 range of `test.yaml` or of the eval preset, which usually stops where plain Monte Carlo does, so pass `snr_min` / `snr_max` explicitly.
+
+**Why the all-zero codeword is enough.** An SBND decoder only sees the reliabilities `|y|` and the syndrome, and neither depends on the transmitted codeword: on the AWGN channel with BPSK, they have the same distribution whatever codeword was sent. `sbnd-strat-test` therefore always sends the all-zero codeword, and the result holds for every codeword. This holds with TTS too, as the TTS strategies only work on the same `|y|` and syndrome.
+
+**How precise is the estimate.** The WER estimate is uncertain for three reasons, and `sbnd-strat-test` accounts for all of them:
+
+* *Weights with failures.* `F_w` is measured on a finite number `N_w` of words, so it carries the usual statistical error. Combined over the weights, each scaled by its `P_w`, these errors give the 95 % confidence interval reported as `ci95`.
+* *Weights without failure.* If no failure was seen in `N_w` words, `F_w` is estimated as 0, but the true value can still be as large as about `3/N_w`. If the true failure rate were `p`, the chance of seeing zero failures in `N_w` words would be `(1 - p)^N_w ≈ exp(-p N_w)`, which drops to 5 % when `p N_w = -ln(0.05) ≈ 3.0`. So any `p` above `3/N_w` would have produced at least one failure 95 % of the time, and seeing none bounds the failure rate below about `3/N_w`, at 95 % confidence (the so-called "rule of three"). Such a weight adds nothing to the WER estimate, but up to `3 P_w / N_w` to its upper bound.
+* *Weights never simulated.* The weights above `w_max` are not simulated at all. The upper bound counts the worst case `F_w = 1` for each of them, which adds their total probability `P(W > w_max)` to it.
+
+The `upper` column adds these three terms to the WER, which gives a conservative upper bound at about 95 % confidence. The gap `upper - WER` is what the stopping rule below calls the half-width. When the weights that dominate the WER all show failures, it is close to `ci95`. When no failure has been seen at all, the WER is 0 and `upper` is the only meaningful number.
+
+**Stopping rule.** Each SNR point first gives `init_frames` frames to every weight from 1 to `d_min` (from 1 only, when `d_min` is unknown), and adds weights until `P(W > w_max)` is below `tail_rel` times the WER, so that the unsimulated weights hardly weigh on the upper bound. It then repeatedly doubles the frames of the weight that contributes most to the half-width, and stops at the first of three events:
+
+* **The WER is known to the requested precision**: the half-width is at most `rel_ci` times the WER. This is the normal end of a point. The precision is relative because the WER spans many decades over a sweep: a fixed number of frames would be wasted at low SNR and too few at high SNR.
+* **The WER is known to be small enough**: the upper bound is below `stop_below` (off by default). At high SNR, failures can be so rare that measuring the WER to `rel_ci` takes far more frames than the answer is worth, while a bound is all you need, for instance to show that a curve has no floor above 1e-9, or that a point lies below the bottom of the plot.
+* **The frame budget is spent**: the point has `max_frames` frames on disk, earlier runs included. This is a safeguard on run time, and the point is reported with whatever precision it has reached: check its `ci95` and `upper` columns before using it.
+
+To choose `rel_ci`, compare with plain Monte Carlo: with `k` errors, its relative 95 % half-width is about `1.96/sqrt(k)`. `rel_ci=0.1` (the default) is thus roughly the precision of a plain simulation with 400 errors, and `rel_ci=0.2` that of 100 errors.
+
+### Output files
+
+Two CSV files are written under `output_dir`, named like the `sbnd-test` output with a `-strat` suffix (e.g. `<model>-bf16-hdd-strat.csv` for `precision=bf16-mixed hdd=true`):
+
+* `<model>[<suffix>]-strat.csv` holds the counts, with one row per (Eb/N0, `w`) cell: `Eb/N0`, `w`, `P_w`, `CW errors`, `Bit errors`, `Total CW`.
+* `<model>[<suffix>]-strat-agg.csv` holds the results, with one row per SNR point: `Eb/N0`, `WER`, `BER`, `ci95` (95 % confidence interval over the weights with failures), `upper` (95 % upper bound, including the zero-failure bounds and the uncovered tail), `Total CW` (frames simulated at this SNR, all weights) and `w_max` (largest simulated weight).
+
+As with `sbnd-test`, counts accumulate across runs under the same file lock (with the same node-local `flock` caveat), so an evaluation can be refined with a smaller `rel_ci` later, or split over several GPUs. The aggregated file is rebuilt from the counts after each SNR point. Unlike `sbnd-test`, `seed` is set once at start rather than before each SNR point; either way, re-running with the same seed on an existing CSV repeats the same frames, so change or unset the seed when extending an evaluation.
+
+### Options
+
+Only the sampler's own options are listed; all others are those of `sbnd-test` (§1).
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `init_frames` | 1048576 | Frames per weight before allocation starts |
+| `max_frames` | 2^32 | Cap on the frames per SNR point (all weights, counted on disk) |
+| `max_chunk` | 2^27 | Largest single extension of one (Eb/N0, `w`) cell |
+| `rel_ci` | 0.1 | Stop an SNR point once the WER's 95 % half-width is at most `rel_ci` times the WER |
+| `stop_below` | 0 | Also stop an SNR point once the WER's 95 % upper bound is below this value (0 = off) |
+| `tail_rel` | 1e-3 | Largest uncovered tail `P(W > w_max)`, relative to the WER |

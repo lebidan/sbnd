@@ -1,0 +1,27 @@
+# -----------------------------------------------------------------------------
+# Base config for weight-stratified evaluation (sbnd-strat-test)
+# -----------------------------------------------------------------------------
+# Everything in test.yaml applies (eval presets, tts, hdd, n_iters, precision,
+# seed, batch_size, num_workers, output_dir...), except num_batches and
+# min_cw_errors: the stopping rule below replaces them. The Eb/N0 range is
+# test.yaml's or the eval preset's (this file cannot override it without also
+# overriding the preset), so pass snr_min / snr_max on the command line.
+# The seed is set once at start, not before each Eb/N0 point: re-running with
+# the same seed on an existing CSV repeats the same frames.
+defaults:
+  - test
+  - _self_
+
+# Frames per weight before allocation starts
+init_frames: 1048576
+# Cap on the frames per Eb/N0 point (all weights, counted on disk)
+max_frames: 4294967296
+# Largest single extension of one (Eb/N0, w) cell (extensions double a cell's count)
+max_chunk: 134217728
+# Stop an Eb/N0 point when the WER's 95 % half-width (CI + rule-of-three bounds
+# of zero-failure cells + uncovered tail) is <= rel_ci x the WER
+rel_ci: 0.1
+# ... or when the WER's 95 % upper bound is below stop_below (0 = off)
+stop_below: 0.0
+# Cover weights 1..w_max with P(W > w_max) < tail_rel x the WER
+tail_rel: 1.0e-3
