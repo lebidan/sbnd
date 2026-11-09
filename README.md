@@ -49,7 +49,7 @@ In syndrome-based neural decoding, a neural network estimates the channel error 
 
 | Configuration file | Evaluation log |
 | --- | --- |
-| [ECCT with original training](https://github.com/lebidan/sbnd/blob/main/conf/exp/ecct-bch-63-45-on-demand-2dB.yaml) | [128 epochs](https://github.com/lebidan/sbnd/blob/main/log/test/ecct-bch-63-45-on-demand-2dB-128epochs-faithful-frost-1882.csv) |
+| [ECCT with original training](https://github.com/lebidan/sbnd/blob/main/conf/exp/ecct-bch-63-45-on-demand-2dB.yaml) | [128 epochs](https://github.com/lebidan/sbnd/blob/main/log/test/ecct-bch-63-45-on-demand-2dB-128epochs-likely-meadow-2228-bf16.csv) |
 | [ECCT with improved training](https://github.com/lebidan/sbnd/blob/main/conf/exp/ecct-bch-63-45-ml-4m-2dB-aug.yaml) | [512 epochs](https://github.com/lebidan/sbnd/blob/main/log/test/ecct-bch-63-45-ml-4m-2dB-aug-512epochs-proud-star-1898.csv) |
 | [rECCT](https://github.com/lebidan/sbnd/blob/main/conf/exp/recct-bch-63-45-ml-4m-2dB-aug.yaml) | [512 epochs](https://github.com/lebidan/sbnd/blob/main/log/test/recct-bch-63-45-ml-4m-2dB-aug-512epochs-fiery-plant-1871.csv) |
 
