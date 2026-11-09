@@ -133,7 +133,7 @@ Help us improve on those baselines!
 * Two decoding modes: codeword-level SBND, and message-level iSBND ([de Boni Rovella & Benammar, 2023](https://arxiv.org/abs/2402.13948)) for non-systematic codes.
 * Training data generated on demand or read from pre-computed datasets, with deterministic per-batch mixing of several SNRs or datasets, optional per-group loss weights ([Wiesmayr et al., 2022](https://arxiv.org/abs/2210.14103)), and data augmentation by code automorphisms ([Le Bidan et al., 2026](https://arxiv.org/abs/2605.03620)).
 * Configuration with [Hydra](https://hydra.cc) (composable YAML files) and multi-GPU training with PyTorch Lightning DDP.
-* Monte Carlo evaluation of BER and WER over a range of Eb/N0 values, with three test-time scaling methods: sequential (self-boosting), parallel (test-time augmentation) and list-based (AfterBurner).
+* Monte Carlo evaluation of BER and WER over a range of Eb/N0 values, with three test-time scaling methods: sequential (self-boosting), parallel (test-time augmentation) and list-based (AfterBurner). A weight-stratified Monte Carlo simulator reaches WERs down to 1e-10 or lower, with the same options.
 * Logging to CSV files and [Weights & Biases](https://wandb.ai), including gradient and weight statistics.
 
 ## Installation
@@ -312,7 +312,7 @@ Both the decoder and the datamodule default to `"codeword"`, so standard SBND ex
 The reference documentation lives under [`docs/`](docs):
 
 * [Training a model](docs/training.md): creating a training experiment config, which specifies code, data (on-demand or pre-computed, with multi-SNR / multi-file mixing and optional per-group loss reweighting; augmentation; dataset format and download), decoder, optimizer/scheduler, precision, resume vs. continue, logging, and end-of-training test evaluation.
-* [Evaluating a model](docs/evaluation.md): running `sbnd-test`, the basic Monte Carlo SNR sweep to measure WER and BER, optional hard-decision post-filtering, the test-time scaling methods (self-boosting, TTA and AfterBurner), and the iteration-count override for iterative decoders.
+* [Evaluating a model](docs/evaluation.md): running `sbnd-test`, the basic Monte Carlo SNR sweep to measure WER and BER, optional hard-decision post-filtering, the test-time scaling methods (self-boosting, TTA and AfterBurner), the iteration-count override for iterative decoders, and weight-stratified evaluation (`sbnd-strat-test`) for very low WERs.
 * [Extending SBND](docs/extending.md): adding your own decoder architecture, with the `BaseDecoder` template, conventions, a walk-through of the mocked decoder example, and how to wire it into an experiment.
 * [Experiments](docs/experiments.md): index of the shipped experiments under [`conf/exp/`](conf/exp), grouped by code, with links to the corresponding evaluation logs in [`log/test/`](log/test).
 
@@ -337,6 +337,7 @@ sbnd/
 │   ├── tts.py                  # Decoding strategies: no-TTS baseline, SelfBoosting, TTA, AfterBurner
 │   ├── lr_sched.py             # LR schedulers (CosineWarmupLR, WarmupStableDecayLR)
 │   ├── train.py / test.py      # sbnd-train and sbnd-test entry points
+│   ├── strat_test.py           # sbnd-strat-test: weight-stratified evaluation
 │   └── utils.py                # Logging utilities
 ├── pyproject.toml              # Package metadata and dependencies
 ├── CITATION.cff                # Citation metadata (used by GitHub's "Cite this repository")

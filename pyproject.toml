@@ -26,6 +26,7 @@ wandb = ["wandb"]
 [project.scripts]
 sbnd-train = "sbnd.train:main"
 sbnd-test  = "sbnd.test:main"
+sbnd-strat-test = "sbnd.strat_test:main"
 
 [tool.setuptools]
 package-dir = {"sbnd" = "src"}

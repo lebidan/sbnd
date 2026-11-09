@@ -75,8 +75,8 @@ Code file: [`bch.63.36.mat`](../data/codes/bch.63.36.mat). The experiments with 
 
 | Decoder | Size | Training data | Epochs | Eval log |
 | --- | --- | --- | --- | --- |
-| [ECCT](../conf/exp/ecct-bch-63-36-on-demand-2dB.yaml) | 1.2M | on-demand at 2 dB | 128 | [results](../log/test/ecct-bch-63-36-on-demand-2dB-128epochs-royal-pyramid-2229-bf16.csv) ([with HDD](../log/test/ecct-bch-63-36-on-demand-2dB-128epochs-royal-pyramid-2229-bf16-hdd.csv)) |
-| [ECCT](../conf/exp/ecct-bch-63-36-on-demand-2dB.yaml) | 1.2M | on-demand at 2 dB | 512 | [results](../log/test/ecct-bch-63-36-on-demand-2dB-512epochs-worthy-rain-2227-bf16.csv) ([with HDD](../log/test/ecct-bch-63-36-on-demand-2dB-512epochs-worthy-rain-2227-bf16-hdd.csv)) |
+| [ECCT](../conf/exp/ecct-bch-63-36-on-demand-2dB.yaml) | 1.2M | on-demand at 2 dB | 128 | [results](../log/test/ecct-bch-63-36-on-demand-2dB-128epochs-royal-pyramid-2229-bf16.csv) ([with HDD](../log/test/ecct-bch-63-36-on-demand-2dB-128epochs-royal-pyramid-2229-bf16-hdd.csv)), 1 to 6 dB; [stratified](../log/test/ecct-bch-63-36-on-demand-2dB-128epochs-royal-pyramid-2229-bf16-strat-agg.csv) ([with HDD](../log/test/ecct-bch-63-36-on-demand-2dB-128epochs-royal-pyramid-2229-bf16-hdd-strat-agg.csv)), 6 to 9 dB |
+| [ECCT](../conf/exp/ecct-bch-63-36-on-demand-2dB.yaml) | 1.2M | on-demand at 2 dB | 512 | [results](../log/test/ecct-bch-63-36-on-demand-2dB-512epochs-worthy-rain-2227-bf16.csv) ([with HDD](../log/test/ecct-bch-63-36-on-demand-2dB-512epochs-worthy-rain-2227-bf16-hdd.csv)), 1 to 6 dB; [stratified](../log/test/ecct-bch-63-36-on-demand-2dB-512epochs-worthy-rain-2227-bf16-strat-agg.csv) ([with HDD](../log/test/ecct-bch-63-36-on-demand-2dB-512epochs-worthy-rain-2227-bf16-hdd-strat-agg.csv)), 6 to 9 dB |
 
 ### Experiments with a pre-computed dataset
 
@@ -104,8 +104,8 @@ Code file: [`bch.63.45.mat`](../data/codes/bch.63.45.mat). Dataset for the datas
 
 | Decoder | Size | Training data | Epochs | Eval log |
 | --- | --- | --- | --- | --- |
-| [ECCT](../conf/exp/ecct-bch-63-45-on-demand-2dB.yaml) | 1.2M | on-demand at 2 dB | 128 | [results](../log/test/ecct-bch-63-45-on-demand-2dB-128epochs-likely-meadow-2228-bf16.csv) ([with HDD](../log/test/ecct-bch-63-45-on-demand-2dB-128epochs-likely-meadow-2228-bf16-hdd.csv)) |
-| [ECCT](../conf/exp/ecct-bch-63-45-on-demand-2dB.yaml) | 1.2M | on-demand at 2 dB | 512 | [results](../log/test/ecct-bch-63-45-on-demand-2dB-512epochs-ancient-deluge-2226-bf16.csv) ([with HDD](../log/test/ecct-bch-63-45-on-demand-2dB-512epochs-ancient-deluge-2226-bf16-hdd.csv)) |
+| [ECCT](../conf/exp/ecct-bch-63-45-on-demand-2dB.yaml) | 1.2M | on-demand at 2 dB | 128 | [results](../log/test/ecct-bch-63-45-on-demand-2dB-128epochs-likely-meadow-2228-bf16.csv) ([with HDD](../log/test/ecct-bch-63-45-on-demand-2dB-128epochs-likely-meadow-2228-bf16-hdd.csv)), 1 to 6 dB; [stratified](../log/test/ecct-bch-63-45-on-demand-2dB-128epochs-likely-meadow-2228-bf16-strat-agg.csv) ([with HDD](../log/test/ecct-bch-63-45-on-demand-2dB-128epochs-likely-meadow-2228-bf16-hdd-strat-agg.csv)), 4 to 9 dB |
+| [ECCT](../conf/exp/ecct-bch-63-45-on-demand-2dB.yaml) | 1.2M | on-demand at 2 dB | 512 | [results](../log/test/ecct-bch-63-45-on-demand-2dB-512epochs-ancient-deluge-2226-bf16.csv) ([with HDD](../log/test/ecct-bch-63-45-on-demand-2dB-512epochs-ancient-deluge-2226-bf16-hdd.csv)), 1 to 6 dB; [stratified](../log/test/ecct-bch-63-45-on-demand-2dB-512epochs-ancient-deluge-2226-bf16-strat-agg.csv) ([with HDD](../log/test/ecct-bch-63-45-on-demand-2dB-512epochs-ancient-deluge-2226-bf16-hdd-strat-agg.csv)), 4 to 9 dB |
 | [CrossMPT](../conf/exp/crossmpt-bch-63-45-on-demand-3dB.yaml) | 1.2M | on-demand at 3 dB | 128 | [results](../log/test/crossmpt-bch-63-45-on-demand-3dB-128epochs-bright-glade-2001.csv) |
 | [CrossMPT](../conf/exp/crossmpt-bch-63-45-on-demand-3dB.yaml) | 1.2M | on-demand at 3 dB | 512 | [results](../log/test/crossmpt-bch-63-45-on-demand-3dB-512epochs-ethereal-plasma-2006.csv) |
 
@@ -127,8 +127,8 @@ Code file: [`bch.63.51.mat`](../data/codes/bch.63.51.mat). The experiments with 
 
 | Decoder | Size | Training data | Epochs | Eval log |
 | --- | --- | --- | --- | --- |
-| [ECCT](../conf/exp/ecct-bch-63-51-on-demand-2.5dB.yaml) | 1.2M | on-demand at 2.5 dB | 128 | [results](../log/test/ecct-bch-63-51-on-demand-2.5dB-128epochs-iconic-darkness-2232-bf16.csv) ([with HDD](../log/test/ecct-bch-63-51-on-demand-2.5dB-128epochs-iconic-darkness-2232-bf16-hdd.csv)) |
-| [ECCT](../conf/exp/ecct-bch-63-51-on-demand-2.5dB.yaml) | 1.2M | on-demand at 2.5 dB | 512 | [results](../log/test/ecct-bch-63-51-on-demand-2.5dB-512epochs-noble-sea-2231-bf16.csv) ([with HDD](../log/test/ecct-bch-63-51-on-demand-2.5dB-512epochs-noble-sea-2231-bf16-hdd.csv)) |
+| [ECCT](../conf/exp/ecct-bch-63-51-on-demand-2.5dB.yaml) | 1.2M | on-demand at 2.5 dB | 128 | [results](../log/test/ecct-bch-63-51-on-demand-2.5dB-128epochs-iconic-darkness-2232-bf16.csv) ([with HDD](../log/test/ecct-bch-63-51-on-demand-2.5dB-128epochs-iconic-darkness-2232-bf16-hdd.csv)), 1 to 6 dB; [stratified](../log/test/ecct-bch-63-51-on-demand-2.5dB-128epochs-iconic-darkness-2232-bf16-strat-agg.csv) ([with HDD](../log/test/ecct-bch-63-51-on-demand-2.5dB-128epochs-iconic-darkness-2232-bf16-hdd-strat-agg.csv)), 4 to 9 dB |
+| [ECCT](../conf/exp/ecct-bch-63-51-on-demand-2.5dB.yaml) | 1.2M | on-demand at 2.5 dB | 512 | [results](../log/test/ecct-bch-63-51-on-demand-2.5dB-512epochs-noble-sea-2231-bf16.csv) ([with HDD](../log/test/ecct-bch-63-51-on-demand-2.5dB-512epochs-noble-sea-2231-bf16-hdd.csv)), 1 to 6 dB; [stratified](../log/test/ecct-bch-63-51-on-demand-2.5dB-512epochs-noble-sea-2231-bf16-strat-agg.csv) ([with HDD](../log/test/ecct-bch-63-51-on-demand-2.5dB-512epochs-noble-sea-2231-bf16-hdd-strat-agg.csv)), 4 to 9 dB |
 
 ### Experiments with a pre-computed dataset
 

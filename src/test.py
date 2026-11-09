@@ -151,6 +151,49 @@ def resolve_hdd_t(model: SBNDLitModule, code: LinearCode, hdd: bool) -> int:
     return (code.dmin - 1) // 2
 
 
+def setup_model(model: SBNDLitModule) -> tuple[SBNDLitModule, torch.device]:
+    """Move the model to the GPU if any, in eval mode, recompiled if trained compiled."""
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device: {device}")
+    if torch.cuda.is_available():
+        torch.set_float32_matmul_precision("high")
+    model = model.to(device)
+    model.eval()
+    # compiled state isn't pickled: recompile after loading (no-op if compile=False)
+    if hasattr(model.decoder, "_maybe_compile"):
+        model.decoder._maybe_compile()  # type: ignore[operator]
+    return model, device
+
+
+def decode_batch(
+    model: SBNDLitModule,
+    code: LinearCode,
+    tts: object,
+    ym: Tensor,
+    syndromes: Tensor,
+    target_shape: torch.Size,
+    precision: str,
+) -> Tensor:
+    """Decode one batch already on the model's device; return the int8 predictions.
+
+    Zero-syndrome words skip the model and stay uncorrected
+    (update_error_stats counts undetectable errors as errors anyway).
+    """
+    nz = torch.any(syndromes < 0, dim=1)
+    preds = torch.zeros(target_shape, dtype=torch.int8, device=ym.device)
+    if nz.any():
+        ym_nz, synd_nz = ym[nz], syndromes[nz]
+        # The batch size now varies: mark it dynamic so SingleShot compiles one graph
+        # (TTS strategies derive new tensors and may still recompile a few times)
+        torch._dynamo.maybe_mark_dynamic(ym_nz, 0)
+        torch._dynamo.maybe_mark_dynamic(synd_nz, 0)
+        with torch.autocast(
+            ym.device.type, torch.bfloat16, enabled=precision == "bf16-mixed"
+        ):
+            preds[nz] = tts.decode(model, code, ym_nz, synd_nz)  # type: ignore[attr-defined]
+    return preds
+
+
 def test_model(
     code: LinearCode,
     model: SBNDLitModule,
@@ -170,15 +213,7 @@ def test_model(
         raise ValueError(f"precision must be one of {PRECISIONS}, got {precision!r}")
     if tts is None:
         tts = SingleShotDecoder()
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Using device: {device}")
-    if torch.cuda.is_available():
-        torch.set_float32_matmul_precision("high")
-    model = model.to(device)
-    model.eval()
-    # compiled state isn't pickled: recompile after loading (no-op if compile=False)
-    if hasattr(model.decoder, "_maybe_compile"):
-        model.decoder._maybe_compile()  # type: ignore[operator]
+    model, device = setup_model(model)
     error_space = getattr(model.decoder, "error_space", "codeword")
     Ginv = code.Ginv.float().to(device)  # no int8 matmul on CUDA
     # Each run only counts its own samples; merge_into_csv adds them to what is
@@ -209,22 +244,10 @@ def test_model(
         with torch.no_grad():
             for b, batch in enumerate(tqdm(dl, disable=not show_progress), 1):
                 ym, syndromes, targets, _ = batch  # per-sample loss weight unused
-                ym_dev = ym.to(device)
                 synd_dev = syndromes.to(device)
-                # Zero-syndrome words skip the model and stay uncorrected
-                # (update_error_stats counts undetectable errors as errors anyway)
-                nz = torch.any(synd_dev < 0, dim=1)
-                preds = torch.zeros(targets.shape, dtype=torch.int8, device=device)
-                if nz.any():
-                    ym_nz, synd_nz = ym_dev[nz], synd_dev[nz]
-                    # The batch size now varies: mark it dynamic so SingleShot compiles one graph
-                    # (TTS strategies derive new tensors and may still recompile a few times)
-                    torch._dynamo.maybe_mark_dynamic(ym_nz, 0)
-                    torch._dynamo.maybe_mark_dynamic(synd_nz, 0)
-                    with torch.autocast(
-                        device.type, torch.bfloat16, enabled=precision == "bf16-mixed"
-                    ):
-                        preds[nz] = tts.decode(model, code, ym_nz, synd_nz)  # type: ignore[attr-defined]
+                preds = decode_batch(
+                    model, code, tts, ym.to(device), synd_dev, targets.shape, precision
+                )
                 update_error_stats(
                     Ginv, error_space, preds, targets.to(device), synd_dev, delta, t
                 )
@@ -240,6 +263,50 @@ def test_model(
     if not rows and pathlib.Path(output_file).exists():
         return load_csv(output_file)
     return [rows[s] for s in sorted(rows)]
+
+
+def setup_eval(
+    cfg: DictConfig, model: SBNDLitModule, code: LinearCode
+) -> tuple[object, int, str]:
+    """Post-load setup shared by sbnd-test and sbnd-strat-test: eval-time iteration
+    count, HDD correction capability t (0 if hdd=false), TTS strategy, and the output
+    file suffix. Returns (tts, t, suffix)."""
+    # Optional eval-time iteration count, always with syndrome early exit. Must run
+    # before setup_model's _maybe_compile so the compiled graph includes it.
+    # Non-iterative decoders raise there.
+    if cfg.n_iters is not None:
+        model.decoder.configure_eval(cfg.n_iters, code)  # type: ignore[operator]
+
+    # Resolve HDD correction capability (t=0 if hdd=false)
+    t = resolve_hdd_t(model, code, cfg.hdd)
+    if cfg.hdd:
+        log.info(f"HDD emulation enabled (correction capability t = {t})")
+
+    # Instantiate the test-time scaling strategy (defaults to no-TTS if not set)
+    tts = instantiate(cfg.tts)
+    tts.validate(model, code)
+    if tts.name == "no-tts":
+        log.info("No TTS - Standard decoding (single forward pass)")
+    else:
+        tts_param_str = ""
+        if tts.name == "self-boosting":
+            tts_param_str = f"with {tts.num_iters} iterations"
+        if tts.name == "tta":
+            tts_param_str = f"with {tts.num_perms} permutations"
+        if tts.name == "afterburner":
+            tts_param_str = f"with {tts.num_flips} flipped positions"
+        log.info(
+            f"TTS strategy: {tts.name} {tts_param_str} (suffix={tts.suffix or '<none>'})"
+        )
+
+    # suffix order: <tts>[-it<n>][-bf16][-hdd]
+    suffix = (
+        tts.suffix
+        + (f"-it{cfg.n_iters}" if cfg.n_iters is not None else "")
+        + ("-bf16" if cfg.precision == "bf16-mixed" else "")
+        + ("-hdd" if cfg.hdd else "")
+    )
+    return tts, t, suffix
 
 
 # conf/ is not part of the installed package; it lives in the project root.
@@ -277,12 +344,6 @@ def _main(cfg: DictConfig) -> None:
     code = LinearCode(code_file)
     log.info(f"Code {code} has been successfully loaded")
 
-    # Optional eval-time iteration count, always with syndrome early exit. Must run
-    # before test_model's _maybe_compile so the compiled graph includes it.
-    # Non-iterative decoders raise there.
-    if cfg.n_iters is not None:
-        model.decoder.configure_eval(cfg.n_iters, code)  # type: ignore[operator]
-
     # Build the Eb/N0 sweep
     ebno_dB_range = torch.arange(cfg.snr_min, cfg.snr_max + cfg.snr_step, cfg.snr_step)
     log.info(
@@ -298,37 +359,10 @@ def _main(cfg: DictConfig) -> None:
     compiled = getattr(model.decoder, "_compile", False)
     log.info(f"Precision: {cfg.precision}, torch.compile: {compiled}")
 
-    # Resolve HDD correction capability (t=0 if hdd=false)
-    t = resolve_hdd_t(model, code, cfg.hdd)
-    if cfg.hdd:
-        log.info(f"HDD emulation enabled (correction capability t = {t})")
-
-    # Instantiate the test-time scaling strategy (defaults to no-TTS if not set)
-    tts = instantiate(cfg.tts)
-    tts.validate(model, code)
-    if tts.name == "no-tts":
-        log.info("No TTS - Standard decoding (single forward pass)")
-    else:
-        tts_param_str = ""
-        if tts.name == "self-boosting":
-            tts_param_str = f"with {tts.num_iters} iterations"
-        if tts.name == "tta":
-            tts_param_str = f"with {tts.num_perms} permutations"
-        if tts.name == "afterburner":
-            tts_param_str = f"with {tts.num_flips} flipped positions"
-        log.info(
-            f"TTS strategy: {tts.name} {tts_param_str} (suffix={tts.suffix or '<none>'})"
-        )
+    tts, t, suffix = setup_eval(cfg, model, code)
 
     # Build the output file path
     pathlib.Path(cfg.output_dir).mkdir(parents=True, exist_ok=True)
-    # suffix order: <tts>[-it<n>][-bf16][-hdd]
-    suffix = (
-        tts.suffix
-        + (f"-it{cfg.n_iters}" if cfg.n_iters is not None else "")
-        + ("-bf16" if cfg.precision == "bf16-mixed" else "")
-        + ("-hdd" if cfg.hdd else "")
-    )
     output_file = cfg.output_dir + "/" + pathlib.Path(model_file).stem + suffix + ".csv"
     log.info(f"Results will be saved to file: {output_file}")
 

@@ -14,6 +14,12 @@ from .utils import get_rank_zero_logger
 log = get_rank_zero_logger(__name__)
 
 
+def ebno_to_sigma(rate: float, ebno_dB: float) -> float:
+    """AWGN noise std for BPSK (x = +-1) at Eb/N0 = `ebno_dB` dB with code rate `rate`:
+    sigma^2 = 1 / (2 * rate * Eb/N0)."""
+    return 1 / math.sqrt(2 * rate * 10 ** (ebno_dB / 10))
+
+
 def build_batch_mix(K: int, weights: list[float] | None, name: str = "items") -> Tensor:
     """Normalize `batch_mix` weights into a (K,) tensor that sums to 1.
     Uniform weights are used when `weights is None`. Validates length match,
@@ -257,7 +263,7 @@ def generate_random_training_batch(
         n_k = int(counts[k].item())
         if n_k == 0:
             continue
-        sigma_k = 1 / math.sqrt(2 * code.rate * 10 ** (float(ebno_dB[k].item()) / 10))
+        sigma_k = ebno_to_sigma(code.rate, float(ebno_dB[k].item()))
         y_k, e_k = generate_at_single_snr(code, sigma_k, n_k)
         y_parts.append(y_k)
         e_parts.append(e_k)
@@ -281,7 +287,7 @@ def generate_random_test_batch(
     No filtering is applied to the generated samples, which can include rx words with a zero syndrome.
     Output shape is (bs, n), (bs, n)
     """
-    sigma = 1 / math.sqrt(2 * code.rate * 10 ** (ebno_dB / 10))
+    sigma = ebno_to_sigma(code.rate, ebno_dB)
     cw = code.encode(torch.randint(2, (bs, code.k), dtype=torch.int8))
     y = 1 - 2 * cw + sigma * torch.randn(bs, code.n)
     e = (y < 0).to(torch.int8).bitwise_xor_(cw)  # e = z - c
