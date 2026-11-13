@@ -223,7 +223,7 @@ def plot(code, runs):
         ax.set_xlabel("Eb/N0 (dB)")
         ax.set_ylabel(name)
         ax.grid(True, which="both", alpha=0.3)
-    axes[0].legend(loc="lower left", fontsize=8)
+        ax.legend(loc="lower left", fontsize=8)
     fig.suptitle(code)
     fig.tight_layout()
     OUT.mkdir(exist_ok=True)
