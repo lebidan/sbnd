@@ -18,6 +18,10 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 DOC = ROOT / "docs" / "experiments.md"
 OUT = ROOT / "docs" / "figs"
+# Eval logs drawn even when not the best of their model, cut at the given Eb/N0 (dB).
+ALSO_PLOT = {"ecct-bch-63-45-on-demand-2dB-512epochs-ancient-deluge-2226-bf16.csv": 7.5}
+# Lower y limits (FER, BER) where the default range hurts readability.
+YMIN = {"BCH (63, 45, 7)": (1e-10, 1e-11), "BCH (63, 51, 5)": (1e-10, 1e-11)}
 
 # MLD reference curves: (label, Eb/N0 dB, FER, info BER).
 # From sdd-julia OSD runs (>= 100 frame errors per point) unless noted.
@@ -181,6 +185,14 @@ def best_per_model(rows):
             *(set(r["curve"]["snr"][: r["curve"]["n_mc"]]) for r in runs)
         )
         best.append(min(runs, key=lambda r: score(r["curve"], list(shared))))
+    for r in rows:
+        snr_max = ALSO_PLOT.get(Path(r["log"]).name)
+        if snr_max and r not in best:
+            keep = r["curve"]["snr"] <= snr_max
+            r["curve"].update(
+                {k: v[keep] for k, v in r["curve"].items() if k != "n_mc"}
+            )
+            best.append(r)
     return best
 
 
@@ -219,7 +231,8 @@ def plot(code, runs):
         m = (snr >= xmin) & (snr <= xmax)
         for ax, y in zip(axes, (fer, ber)):
             ax.semilogy(snr[m], np.array(y)[m], "k-", lw=2, label=name)
-    for ax, name in zip(axes, ("FER", "BER")):
+    for ax, name, ymin in zip(axes, ("FER", "BER"), YMIN.get(code, (None, None))):
+        ax.set_ylim(bottom=ymin)
         ax.set_xlabel("Eb/N0 (dB)")
         ax.set_ylabel(name)
         ax.grid(True, which="both", alpha=0.3)
