@@ -125,6 +125,8 @@ Companion TTS evaluation logs: [self-boosting (8 iters)](https://github.com/lebi
 
 </details>
 
+Many more results are available in [docs/experiments.md](docs/experiments.md): every experiment config with its evaluation log, and FER / BER curves against MLD for each code.
+
 Help us improve on those baselines! 
 
 ## Features
@@ -324,7 +326,8 @@ sbnd/
 ├── data/
 │   ├── codes/                  # Code definition .mat files (G, H, n, k)
 │   └── perms/                  # Code automorphism .mat files (used by sbnd.transforms.GenericPerms)
-├── docs/                       # Reference guides: training.md, evaluation.md, extending.md
+├── docs/                       # Reference guides: training.md, evaluation.md, extending.md, experiments.md (+ figs/)
+├── scripts/                    # plot_experiments.py: FER/BER figures of docs/experiments.md
 ├── skills/                     # Agent skills (sbnd-train, sbnd-eval, sbnd-new-exp) — see AGENTS.md
 ├── media/                      # Logo, plots, etc.
 ├── src/                        # Python package (installed as `sbnd`)

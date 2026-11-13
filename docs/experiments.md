@@ -28,10 +28,13 @@ Conventions:
 - The **Decoder** column links to the experiment config file. The **Size** column gives the number of trainable parameters. The **Eval log** column links to the CSV with `sbnd-test` results; *epochs* is the number of training epochs of the evaluated checkpoint.
 - The **Training data** column summarizes the training-time data pipeline: `on-demand at X dB` for samples generated on the fly at a fixed Eb/N₀, or `<size> ML samples at X dB` for a pre-computed ML-error-pattern dataset (see [`docs/training.md`](training.md#training-data)). The mention `with augmentation` indicates that code-automorphism data augmentation is enabled.
 - Test-time scaling (TTS) variants of an eval log are listed alongside the base log when available — see [Test-time scaling](evaluation.md#3-test-time-scaling).
+- Each code section opens with a FER / BER vs Eb/N₀ figure: the best eval log of each model (decoder and size; best = lowest mean log-FER over the Eb/N₀ points its logs share), with 95 % confidence bands, and the maximum-likelihood decoding (MLD) curve when available. Points past the plain Monte-Carlo range come from the stratified eval. TTS and HDD variants are not plotted. Regenerate all figures with `python scripts/plot_experiments.py` after editing a table.
 
 ## BCH (31, 21, 5)
 
 Code file: [`bch.31.21.mat`](../data/codes/bch.31.21.mat). All experiments use the 4M-sample ML dataset [`train-ml-4M-3dB.mat`](https://sdrive.cnrs.fr/s/bKBHagxAwLiNNzn) (see [Pre-computed dataset format and download](training.md#pre-computed-dataset-format-and-download)) or its 16M / permuted variants. The 16M dataset can be download from [this link](https://ai4code.projects.labsticc.fr/software/).
+
+![FER and BER of BCH (31, 21, 5)](figs/bch-31-21-5.png)
 
 ### Experiments with a pre-computed dataset
 
@@ -56,6 +59,8 @@ Code file: [`bch.31.21.mat`](../data/codes/bch.31.21.mat). All experiments use t
 
 Code file: [`bch.63.24.mat`](../data/codes/bch.63.24.mat). The experiments below use a 4M-sample ML dataset at 2 dB built like the (63, 45) one (`train-ml-4M-2dB.mat`, see [Pre-computed dataset format and download](training.md#pre-computed-dataset-format-and-download)); it is not available for download yet. The rECCT config, [`recct-bch-63-24-ml-4m-2dB-aug.yaml`](../conf/exp/recct-bch-63-24-ml-4m-2dB-aug.yaml), is the (63, 45) one with the code and dataset paths changed.
 
+![FER and BER of BCH (63, 24, 15)](figs/bch-63-24-15.png)
+
 ### Experiments with a pre-computed dataset
 
 | Decoder | Size | Training data | Epochs | Eval log |
@@ -70,6 +75,8 @@ Code file: [`bch.63.30.mat`](../data/codes/bch.63.30.mat). Configs for a 4M-samp
 ## BCH (63, 36, 11)
 
 Code file: [`bch.63.36.mat`](../data/codes/bch.63.36.mat). The experiments with a pre-computed dataset below use a 4M-sample ML dataset at 2 dB built like the (63, 45) one (`train-ml-4M-2dB.mat`, see [Pre-computed dataset format and download](training.md#pre-computed-dataset-format-and-download)); it is not available for download yet. The rECCT config, [`recct-bch-63-36-ml-4m-2dB-aug.yaml`](../conf/exp/recct-bch-63-36-ml-4m-2dB-aug.yaml), is the (63, 45) one with the code and dataset paths changed and the learned re-injection gates on. The rECCT 128-epoch log below was trained with `max_epochs=128 lr_scheduler.decay=16`. The ECCT config, [`ecct-bch-63-36-on-demand-2dB.yaml`](../conf/exp/ecct-bch-63-36-on-demand-2dB.yaml), is the (63, 45) one with the code path changed.
+
+![FER and BER of BCH (63, 36, 11)](figs/bch-63-36-11.png)
 
 ### Experiments with on-demand data
 
@@ -89,6 +96,8 @@ Code file: [`bch.63.36.mat`](../data/codes/bch.63.36.mat). The experiments with 
 
 Code file: [`bch.63.39.mat`](../data/codes/bch.63.39.mat). The experiments below use a 4M-sample ML dataset at 2 dB built like the (63, 45) one (`train-ml-4M-2dB.mat`, see [Pre-computed dataset format and download](training.md#pre-computed-dataset-format-and-download)); it is not available for download yet. The rECCT config, [`recct-bch-63-39-ml-4m-2dB-aug.yaml`](../conf/exp/recct-bch-63-39-ml-4m-2dB-aug.yaml), is the (63, 45) one with the code and dataset paths changed. The 128-epoch log below was trained with `max_epochs=128 lr_scheduler.decay=16`.
 
+![FER and BER of BCH (63, 39, 9)](figs/bch-63-39-9.png)
+
 ### Experiments with a pre-computed dataset
 
 | Decoder | Size | Training data | Epochs | Eval log |
@@ -99,6 +108,8 @@ Code file: [`bch.63.39.mat`](../data/codes/bch.63.39.mat). The experiments below
 ## BCH (63, 45, 7)
 
 Code file: [`bch.63.45.mat`](../data/codes/bch.63.45.mat). Dataset for the dataset-based experiments below: [`train-ml-4M-2dB.mat`](https://sdrive.cnrs.fr/s/wMDN6beY2Gnb7rg) (see [Pre-computed dataset format and download](training.md#pre-computed-dataset-format-and-download)). Larger ML datasets can also be downloaded from [this link](https://ai4code.projects.labsticc.fr/software/).
+
+![FER and BER of BCH (63, 45, 7)](figs/bch-63-45-7.png)
 
 ### Experiments with on-demand data
 
@@ -123,6 +134,8 @@ Code file: [`bch.63.45.mat`](../data/codes/bch.63.45.mat). Dataset for the datas
 
 Code file: [`bch.63.51.mat`](../data/codes/bch.63.51.mat). The experiments with a pre-computed dataset below use a 4M-sample ML dataset at 2.5 dB built like the (63, 45) one (`train-ml-4M-2.5dB.mat`, see [Pre-computed dataset format and download](training.md#pre-computed-dataset-format-and-download)); it is not available for download yet. The rECCT config, [`recct-bch-63-51-ml-4m-2.5dB-aug.yaml`](../conf/exp/recct-bch-63-51-ml-4m-2.5dB-aug.yaml), is the (63, 45) one with the code and dataset paths changed and the learned re-injection gates on ([`recct-bch-63-51-ml-4m-2dB-aug.yaml`](../conf/exp/recct-bch-63-51-ml-4m-2dB-aug.yaml) is the same recipe on a 2 dB dataset, without an eval log). The ECCT config, [`ecct-bch-63-51-on-demand-2.5dB.yaml`](../conf/exp/ecct-bch-63-51-on-demand-2.5dB.yaml), is the (63, 45) one with the code path changed and training at 2.5 dB.
 
+![FER and BER of BCH (63, 51, 5)](figs/bch-63-51-5.png)
+
 ### Experiments with on-demand data
 
 | Decoder | Size | Training data | Epochs | Eval log |
@@ -141,6 +154,8 @@ Code file: [`bch.63.51.mat`](../data/codes/bch.63.51.mat). The experiments with 
 
 Code file: [`ebch.32.16.mat`](../data/codes/ebch.32.16.mat). Dataset: [`train-ml-4M-3dB.mat`](https://sdrive.cnrs.fr/s/fx7kN9s5MwZfi35) (see [Pre-computed dataset format and download](training.md#pre-computed-dataset-format-and-download)); the 16M variant is currently not available for download (data augmentation can do equally well).
 
+![FER and BER of eBCH (32, 16, 8)](figs/ebch-32-16-8.png)
+
 ### Experiments with a pre-computed dataset
 
 | Decoder | Size | Training data | Epochs | Eval log |
@@ -151,6 +166,8 @@ Code file: [`ebch.32.16.mat`](../data/codes/ebch.32.16.mat). Dataset: [`train-ml
 ## Reed-Muller (32, 16, 8)
 
 Code file: [`rm.32.16.mat`](../data/codes/rm.32.16.mat). Dataset: [`train-ml-4M-3dB.mat`](https://sdrive.cnrs.fr/s/waykmQteWx5RZPn) (see [Pre-computed dataset format and download](training.md#pre-computed-dataset-format-and-download)). The RM code is non-systematic and ships with a reverse-encoding matrix `Ginv`; augmentation uses `GenericPerms`. Permutations file: [`perms.rm.32.mat`](../data/perms/perms.rm.32.mat). 
+
+![FER and BER of Reed-Muller (32, 16, 8)](figs/reed-muller-32-16-8.png)
 
 ### Experiments with a pre-computed dataset
 
@@ -163,6 +180,8 @@ Code file: [`rm.32.16.mat`](../data/codes/rm.32.16.mat). Dataset: [`train-ml-4M-
 
 Code file: [`ldpc.rptu.96.48.mat`](../data/codes/ldpc.rptu.96.48.mat). This quasi-cylic LDPC has circulant size `Z=8`.
 
+![FER and BER of QC-LDPC (96, 48, 10) from RPTU](figs/qc-ldpc-96-48-10-from-rptu.png)
+
 ### Experiments with on-demand data
 
 | Decoder | Size | Training data | Epochs | Eval log |
@@ -174,6 +193,8 @@ Code file: [`ldpc.rptu.96.48.mat`](../data/codes/ldpc.rptu.96.48.mat). This quas
 
 Code file: [`ldpc.ccsds.128.64.mat`](../data/codes/ldpc.ccsds.128.64.mat). This quasi-cyclic LDPC has circulant size `Z=16`.
 
+![FER and BER of QC-LDPC (128, 64, 14) from CCSDS](figs/qc-ldpc-128-64-14-from-ccsds.png)
+
 ### Experiments with on-demand data
 
 | Decoder | Size | Training data | Epochs | Eval log |
@@ -183,6 +204,8 @@ Code file: [`ldpc.ccsds.128.64.mat`](../data/codes/ldpc.ccsds.128.64.mat). This 
 ## Polar (128, 64, 8) from RPTU
 
 Code file: [`polar.rptu.128.64.mat`](../data/codes/polar.rptu.128.64.mat). Dataset for the dataset-based experiment below: [`train-ml-4M-3dB.mat`](https://sdrive.cnrs.fr/s/sdkG86Terq5KCLr) (see [Pre-computed dataset format and download](training.md#pre-computed-dataset-format-and-download)). The Polar code is non-systematic and ships with a reverse-encoding matrix `Ginv`; augmentation uses `GenericPerms`. Permutations file: [`perms.polar.128.mat`](../data/perms/perms.polar.128.mat). 
+
+![FER and BER of Polar (128, 64, 8) from RPTU](figs/polar-128-64-8-from-rptu.png)
 
 The rECCT model shown in the [README performance highlights](../README.md#performance-highlights) was trained in three steps, corresponding to the three rECCT experiments below:
 
