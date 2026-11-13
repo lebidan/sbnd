@@ -18,6 +18,8 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 DOC = ROOT / "docs" / "experiments.md"
 OUT = ROOT / "docs" / "figs"
+# Eval logs drawn even when not the best of their model, cut at the given Eb/N0 (dB).
+ALSO_PLOT = {"ecct-bch-63-45-on-demand-2dB-512epochs-ancient-deluge-2226-bf16.csv": 7.5}
 
 # MLD reference curves: (label, Eb/N0 dB, FER, info BER).
 # From sdd-julia OSD runs (>= 100 frame errors per point) unless noted.
@@ -181,6 +183,14 @@ def best_per_model(rows):
             *(set(r["curve"]["snr"][: r["curve"]["n_mc"]]) for r in runs)
         )
         best.append(min(runs, key=lambda r: score(r["curve"], list(shared))))
+    for r in rows:
+        snr_max = ALSO_PLOT.get(Path(r["log"]).name)
+        if snr_max and r not in best:
+            keep = r["curve"]["snr"] <= snr_max
+            r["curve"].update(
+                {k: v[keep] for k, v in r["curve"].items() if k != "n_mc"}
+            )
+            best.append(r)
     return best
 
 
